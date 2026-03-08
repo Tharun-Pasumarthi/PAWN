@@ -1,0 +1,416 @@
+import { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import toast from 'react-hot-toast'
+import {
+  ArrowLeft, Search, Loader2, ChevronDown, ChevronUp, AlertCircle, Check, Calendar
+} from 'lucide-react'
+import { supabase } from '../services/supabaseClient'
+import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
+import type { PawnItem, InterestResult } from '../types'
+
+export default function ReleaseItem() {
+  const navigate = useNavigate()
+
+  const [serial, setSerial] = useState('')
+  const [item, setItem] = useState<PawnItem | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+
+  const [rateOption, setRateOption] = useState<string>('1')
+  const [customRate, setCustomRate] = useState('')
+  const [p1Rate, setP1Rate] = useState<string>('1')
+  const [p1Custom, setP1Custom] = useState('')
+  const [p2Rate, setP2Rate] = useState<string>('1.15')
+  const [p2Custom, setP2Custom] = useState('')
+  const [releaseDate, setReleaseDate] = useState(todayStr())
+  const [calc, setCalc] = useState<InterestResult | null>(null)
+  const [showPhases, setShowPhases] = useState(false)
+
+  const searchItem = useCallback(async () => {
+    if (!serial.trim()) { toast.error('Enter a serial number'); return }
+    setSearching(true)
+    setItem(null)
+    setCalc(null)
+    try {
+      const { data, error } = await supabase
+        .from('pawn_items')
+        .select('*')
+        .eq('serial_number', serial.trim())
+        .eq('status', 'active')
+        .maybeSingle()
+      if (error) throw error
+      if (!data) { toast.error('Item not found or already released'); return }
+      setItem(data as PawnItem)
+      const isTwo = isTwoPhase(data.pledge_date, releaseDate)
+      if (isTwo) {
+        setP1Rate('1')
+        setP2Rate('1.15')
+        recalculate(data as PawnItem, '1', '', releaseDate, '1', '', '1.15', '')
+      } else {
+        setRateOption(String(data.interest_rate))
+        recalculate(data as PawnItem, String(data.interest_rate), '', releaseDate, '1', '', '1.15', '')
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? 'Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }, [serial, releaseDate])
+
+  const twoPhase = item ? isTwoPhase(item.pledge_date, releaseDate) : false
+
+  const resolveRate = (opt: string, custom: string): number | undefined => {
+    if (opt === 'custom') {
+      const v = Number(custom)
+      return v > 0 ? v : undefined
+    }
+    return Number(opt)
+  }
+
+  const recalculate = (
+    it: PawnItem | null = item,
+    rOpt: string = rateOption,
+    cRate: string = customRate,
+    rDate: string = releaseDate,
+    pr1: string = p1Rate,
+    pc1: string = p1Custom,
+    pr2: string = p2Rate,
+    pc2: string = p2Custom
+  ) => {
+    if (!it) return
+    const isTwo = isTwoPhase(it.pledge_date, rDate)
+
+    if (isTwo) {
+      const r1 = resolveRate(pr1, pc1)
+      const r2 = resolveRate(pr2, pc2)
+      if (!r1 || !r2) { setCalc(null); return }
+      try {
+        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2))
+      } catch (err: any) { toast.error(err.message); setCalc(null) }
+    } else {
+      let rate = Number(rOpt)
+      if (rOpt === 'custom') {
+        rate = Number(cRate)
+        if (!rate || rate <= 0) { setCalc(null); return }
+      }
+      try {
+        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, rate))
+      } catch (err: any) { toast.error(err.message); setCalc(null) }
+    }
+  }
+
+  const onRateChange = (v: string) => { setRateOption(v); recalculate(item, v, customRate, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom) }
+  const onCustomChange = (v: string) => { setCustomRate(v); recalculate(item, 'custom', v, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom) }
+  const onDateChange = (v: string) => { setReleaseDate(v); recalculate(item, rateOption, customRate, v, p1Rate, p1Custom, p2Rate, p2Custom) }
+  const onP1Change = (v: string) => { setP1Rate(v); recalculate(item, rateOption, customRate, releaseDate, v, p1Custom, p2Rate, p2Custom) }
+  const onP1Custom = (v: string) => { setP1Custom(v); recalculate(item, rateOption, customRate, releaseDate, 'custom', v, p2Rate, p2Custom) }
+  const onP2Change = (v: string) => { setP2Rate(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, v, p2Custom) }
+  const onP2Custom = (v: string) => { setP2Custom(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, 'custom', v) }
+
+  const handleRelease = async () => {
+    if (!item || !calc) return
+    setReleasing(true)
+    try {
+      let historyRate = Number(rateOption)
+      if (rateOption === 'custom') historyRate = Number(customRate)
+
+      const { error: hErr } = await supabase.from('pawn_history').insert([{
+        serial_number: item.serial_number,
+        amount: item.amount,
+        interest_rate: historyRate,
+        pledge_date: item.pledge_date,
+        release_date: releaseDate,
+        total_interest: calc.totalInterest,
+        final_amount: calc.finalAmount,
+        image_url: item.image_url
+      }])
+      if (hErr) throw hErr
+
+      const { error: uErr } = await supabase
+        .from('pawn_items')
+        .update({ status: 'released' })
+        .eq('id', item.id)
+      if (uErr) throw uErr
+
+      toast.success('Item released successfully!')
+      navigate('/')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Release failed')
+    } finally {
+      setReleasing(false)
+    }
+  }
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <button className="topbar-back" onClick={() => navigate('/')}>
+            <ArrowLeft size={18} />
+          </button>
+          <span className="topbar-title">Release Item</span>
+        </div>
+      </header>
+
+      <main className="page-shell" style={{ paddingTop: 24 }}>
+        <div style={{ maxWidth: 620, margin: '0 auto' }}>
+
+          {/* ─── Search ─── */}
+          <motion.div
+            className="card"
+            style={{ marginBottom: 20, padding: 16 }}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  className="field-input"
+                  style={{ width: '100%', paddingLeft: 42, fontSize: '1rem', fontWeight: 600 }}
+                  value={serial}
+                  onChange={e => setSerial(e.target.value)}
+                  placeholder="Enter serial number…"
+                  onKeyDown={e => e.key === 'Enter' && searchItem()}
+                />
+              </div>
+              <button className="btn btn-primary" onClick={searchItem} disabled={searching} style={{ borderRadius: 'var(--radius-md)' }}>
+                {searching ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
+              </button>
+            </div>
+          </motion.div>
+
+          <AnimatePresence>
+            {item && (
+              <motion.div
+                key="item-details"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                {/* ─── Item Info Card ─── */}
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 16 }}>
+                    Item Details
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: '1.0625rem', color: 'var(--text-primary)', marginBottom: 6 }}>
+                        Serial: #{item.serial_number}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--accent)', marginBottom: 4 }}>
+                        Pledge: ₹{Number(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                        Pledge Date: {formatDate(item.pledge_date)}
+                      </div>
+                    </div>
+                    {item.image_url && (
+                      <div style={{ width: 80, height: 80, borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-subtle)' }}>
+                        <img src={item.image_url} alt="item" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ─── Interest Calculation Card ─── */}
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 16 }}>
+                    Interest Calculation
+                  </div>
+
+                  {/* Rate controls */}
+                  {twoPhase ? (
+                    <>
+                      {/* Phase 1 Rate */}
+                      <div style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' }}>
+                          Phase 1 Rate — Before Apr 2025
+                        </label>
+                        <div className="chip-group">
+                          {RATES.map(r => (
+                            <button key={r.value} className={`chip ${p1Rate === r.value ? 'active' : ''}`} onClick={() => onP1Change(r.value)}>
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                        {p1Rate === 'custom' && (
+                          <motion.input className="field-input" style={{ width: '100%', marginTop: 8 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                            type="number" inputMode="decimal" value={p1Custom} onChange={e => onP1Custom(e.target.value)} placeholder="Custom rate" step="0.01" />
+                        )}
+                      </div>
+                      {/* Phase 2 Rate */}
+                      <div style={{ marginBottom: 20 }}>
+                        <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' }}>
+                          Phase 2 Rate — After Apr 2025
+                        </label>
+                        <div className="chip-group">
+                          {RATES.map(r => (
+                            <button key={r.value} className={`chip ${p2Rate === r.value ? 'active' : ''}`} onClick={() => onP2Change(r.value)}>
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                        {p2Rate === 'custom' && (
+                          <motion.input className="field-input" style={{ width: '100%', marginTop: 8 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                            type="number" inputMode="decimal" value={p2Custom} onChange={e => onP2Custom(e.target.value)} placeholder="Custom rate" step="0.01" />
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 8, display: 'block' }}>
+                        Interest Rate (%)
+                      </label>
+                      <div className="chip-group">
+                        {RATES.map(r => (
+                          <button key={r.value} className={`chip ${rateOption === r.value ? 'active' : ''}`} onClick={() => onRateChange(r.value)}>
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                      {rateOption === 'custom' && (
+                        <motion.input className="field-input" style={{ width: '100%', marginTop: 10 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                          type="number" inputMode="decimal" value={customRate} onChange={e => onCustomChange(e.target.value)} placeholder="Custom rate" step="0.01" />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Release Date */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid var(--border-subtle)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
+                      <Calendar size={16} />
+                      Release Date (Today)
+                    </div>
+                    <input
+                      className="field-input"
+                      style={{ width: 'auto', padding: '8px 12px', fontSize: '0.875rem', fontWeight: 600, textAlign: 'right', border: 'none', background: 'transparent' }}
+                      type="date"
+                      value={releaseDate}
+                      onChange={e => onDateChange(e.target.value)}
+                    />
+                  </div>
+
+                  {calc && (
+                    <>
+                      {/* Min day rule alert */}
+                      {calc.details.minDayRuleApplied && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', marginTop: 12, fontSize: '0.8125rem', color: 'var(--warning)' }}>
+                          <AlertCircle size={16} />
+                          Minimum 15-day rule applied ({calc.details.actualDays} → {calc.details.effectiveDays} days)
+                        </div>
+                      )}
+
+                      {/* Days & Interest */}
+                      <div style={{ display: 'flex', gap: 20, marginTop: 16, padding: '14px 0', borderTop: '1px solid var(--border-subtle)' }}>
+                        <div>
+                          <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Days Elapsed</div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem' }}>{calc.details.effectiveDays} Days</div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Total Interest</div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>₹{calc.totalInterest.toLocaleString('en-IN')}</div>
+                        </div>
+                      </div>
+
+                      {/* Phase expander */}
+                      {calc.details.phases.length > 1 && (
+                        <>
+                          <button
+                            className="btn btn-ghost btn-sm btn-full"
+                            style={{ marginTop: 8 }}
+                            onClick={() => setShowPhases(!showPhases)}
+                          >
+                            {showPhases ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            {showPhases ? 'Hide' : 'Show'} Phase Details
+                          </button>
+                          <AnimatePresence>
+                            {showPhases && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                style={{ overflow: 'hidden', marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}
+                              >
+                                {calc.details.phases.map(p => (
+                                  <div key={p.phase} className="phase-card">
+                                    <div className="phase-title">Phase {p.phase}</div>
+                                    <div className="detail-row" style={{ padding: '4px 0' }}>
+                                      <span className="detail-key">Period</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.startDate} → {p.endDate}</span>
+                                    </div>
+                                    <div className="detail-row" style={{ padding: '4px 0' }}>
+                                      <span className="detail-key">Days</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.days}d ({p.months} mo)</span>
+                                    </div>
+                                    <div className="detail-row" style={{ padding: '4px 0' }}>
+                                      <span className="detail-key">Rate</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.rate} ({p.yearlyPercentage})</span>
+                                    </div>
+                                    <div className="detail-row" style={{ padding: '4px 0' }}>
+                                      <span className="detail-key">Interest</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem', color: 'var(--warning)' }}>₹{p.interest}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </>
+                      )}
+
+                      {/* Final Amount */}
+                      <div style={{
+                        marginTop: 20, padding: '20px 0 0', borderTop: '1px solid var(--border-subtle)',
+                        textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                          Final Amount to Collect
+                        </div>
+                        <div style={{ fontSize: '2.25rem', fontWeight: 900, color: 'var(--accent)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
+                          ₹{calc.finalAmount.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ─── Confirm Button ─── */}
+                {calc && (
+                  <motion.button
+                    className="btn btn-primary btn-lg btn-full"
+                    onClick={handleRelease}
+                    disabled={releasing}
+                    whileTap={{ scale: 0.97 }}
+                    style={{ marginBottom: 40, borderRadius: 'var(--radius-xl)', fontSize: '1rem', fontWeight: 700, padding: '18px 32px' }}
+                  >
+                    {releasing
+                      ? <><Loader2 size={20} className="spin" /> Releasing…</>
+                      : <><Check size={20} /> Confirm Release & Payment</>
+                    }
+                  </motion.button>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </main>
+    </>
+  )
+}
+
+const RATES = [
+  { value: '1', label: '1.0%' },
+  { value: '1.15', label: '1.15%' },
+  { value: '1.25', label: '1.25%' },
+  { value: 'custom', label: 'Custom' }
+]
+
+function todayStr() { return new Date().toISOString().split('T')[0] }
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+

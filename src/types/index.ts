@@ -1,0 +1,55 @@
+export interface PawnItem {
+  id: string
+  serial_number: string
+  amount: number
+  interest_rate: number
+  pledge_date: string
+  image_url: string | null
+  status: 'active' | 'released'
+  created_at?: string
+  updated_at?: string
+}
+
+export interface PawnHistory {
+  id: string
+  serial_number: string
+  amount: number
+  interest_rate: number
+  pledge_date: string
+  release_date: string
+  total_interest: number
+  final_amount: number
+  image_url: string | null
+  created_at?: string
+}
+
+export interface PhaseDetail {
+  phase: number
+  startDate: string
+  endDate: string
+  days: number
+  months: string
+  rate: number
+  yearlyPercentage: string
+  principal: string
+  interest: string
+  output: string
+}
+
+export interface CalculationDetails {
+  principal: number
+  pledgeDate: string
+  releaseDate: string
+  actualDays: number
+  effectiveDays: number
+  minDayRuleApplied: boolean
+  phases: PhaseDetail[]
+}
+
+export interface InterestResult {
+  totalInterest: number
+  finalAmount: number
+  details: CalculationDetails
+}
+
+export type RateOption = 1 | 1.15 | 1.25 | 'custom'
