@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
-  ArrowLeft, Search, Loader2, ChevronDown, ChevronUp, AlertCircle, Check, Calendar
+  ArrowLeft, Search, Loader2, ChevronDown, ChevronUp, AlertCircle, Check, Calendar, Package
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
@@ -11,6 +11,10 @@ import type { PawnItem, InterestResult } from '../types'
 
 export default function ReleaseItem() {
   const navigate = useNavigate()
+
+  const [allItems, setAllItems] = useState<PawnItem[]>([])
+  const [loadingItems, setLoadingItems] = useState(true)
+  const [filterText, setFilterText] = useState('')
 
   const [serial, setSerial] = useState('')
   const [item, setItem] = useState<PawnItem | null>(null)
@@ -26,6 +30,47 @@ export default function ReleaseItem() {
   const [releaseDate, setReleaseDate] = useState(todayStr())
   const [calc, setCalc] = useState<InterestResult | null>(null)
   const [showPhases, setShowPhases] = useState(false)
+
+  // Fetch all active items on mount
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('pawn_items')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+        if (error) throw error
+        setAllItems((data ?? []) as PawnItem[])
+      } catch (err: any) {
+        toast.error(err.message ?? 'Failed to load items')
+      } finally {
+        setLoadingItems(false)
+      }
+    })()
+  }, [])
+
+  const filteredItems = allItems.filter(i => {
+    if (!filterText.trim()) return true
+    const q = filterText.toLowerCase()
+    return i.serial_number.toLowerCase().includes(q) ||
+      String(i.amount).includes(q)
+  })
+
+  const selectItem = (picked: PawnItem) => {
+    setItem(picked)
+    setSerial(picked.serial_number)
+    setCalc(null)
+    const isTwo = isTwoPhase(picked.pledge_date, releaseDate)
+    if (isTwo) {
+      setP1Rate('1')
+      setP2Rate('1.15')
+      recalculate(picked, '1', '', releaseDate, '1', '', '1.15', '')
+    } else {
+      setRateOption(String(picked.interest_rate))
+      recalculate(picked, String(picked.interest_rate), '', releaseDate, '1', '', '1.15', '')
+    }
+  }
 
   const searchItem = useCallback(async () => {
     if (!serial.trim()) { toast.error('Enter a serial number'); return }
@@ -156,7 +201,7 @@ export default function ReleaseItem() {
       <main className="page-shell" style={{ paddingTop: 24 }}>
         <div style={{ maxWidth: 620, margin: '0 auto' }}>
 
-          {/* ─── Search ─── */}
+          {/* ─── Search / Filter ─── */}
           <motion.div
             className="card"
             style={{ marginBottom: 20, padding: 16 }}
@@ -169,17 +214,117 @@ export default function ReleaseItem() {
                 <input
                   className="field-input"
                   style={{ width: '100%', paddingLeft: 42, fontSize: '1rem', fontWeight: 600 }}
-                  value={serial}
-                  onChange={e => setSerial(e.target.value)}
-                  placeholder="Enter serial number…"
-                  onKeyDown={e => e.key === 'Enter' && searchItem()}
+                  value={item ? serial : filterText}
+                  onChange={e => {
+                    if (item) { setSerial(e.target.value) }
+                    else { setFilterText(e.target.value) }
+                  }}
+                  placeholder={item ? 'Serial number' : 'Search items…'}
+                  onKeyDown={e => e.key === 'Enter' && item === null && filterText.trim() && (() => {
+                    setSerial(filterText.trim())
+                    searchItem()
+                  })()}
                 />
               </div>
-              <button className="btn btn-primary" onClick={searchItem} disabled={searching} style={{ borderRadius: 'var(--radius-md)' }}>
-                {searching ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
-              </button>
+              {item && (
+                <button
+                  className="btn"
+                  onClick={() => { setItem(null); setCalc(null); setSerial(''); setFilterText('') }}
+                  style={{ borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem' }}
+                >
+                  Back
+                </button>
+              )}
             </div>
           </motion.div>
+
+          {/* ─── Active Items List ─── */}
+          {!item && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <Package size={16} color="var(--accent)" />
+                <span style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
+                  Active Pledges ({filteredItems.length})
+                </span>
+              </div>
+
+              {loadingItems ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                  <Loader2 size={24} className="spin" style={{ margin: '0 auto 8px' }} />
+                  <div style={{ fontSize: '0.875rem' }}>Loading items…</div>
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-muted)' }}>
+                  <Package size={32} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+                  <div style={{ fontSize: '0.9375rem', fontWeight: 600 }}>
+                    {filterText.trim() ? 'No matching items' : 'No active pledges'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
+                  {filteredItems.map((itm, idx) => (
+                    <motion.div
+                      key={itm.id}
+                      className="card"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.25, delay: idx * 0.03 }}
+                      onClick={() => selectItem(itm)}
+                      style={{
+                        cursor: 'pointer',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 14,
+                        transition: 'var(--transition-fast)',
+                      }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {itm.image_url ? (
+                        <div style={{
+                          width: 52, height: 52, borderRadius: 'var(--radius-sm)',
+                          overflow: 'hidden', flexShrink: 0,
+                          border: '1px solid var(--border-subtle)'
+                        }}>
+                          <img src={itm.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
+                      ) : (
+                        <div style={{
+                          width: 52, height: 52, borderRadius: 'var(--radius-sm)',
+                          background: 'var(--accent-light)', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                          <Package size={22} color="var(--accent)" />
+                        </div>
+                      )}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+                          #{itm.serial_number}
+                        </div>
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {formatDate(itm.pledge_date)}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--accent)' }}>
+                          ₹{Number(itm.amount).toLocaleString('en-IN')}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {itm.interest_rate}%
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
 
           <AnimatePresence>
             {item && (

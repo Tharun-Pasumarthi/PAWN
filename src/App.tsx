@@ -4,6 +4,9 @@ import Dashboard from './pages/Dashboard'
 import AddItem from './pages/AddItem'
 import ReleaseItem from './pages/ReleaseItem'
 import History from './pages/History'
+import InstallBanner from './components/InstallBanner'
+import OfflineBanner from './components/OfflineBanner'
+import UpdatePrompt from './components/UpdatePrompt'
 
 export default function App() {
   return (
@@ -22,6 +25,7 @@ export default function App() {
           }
         }}
       />
+      <OfflineBanner />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/add" element={<AddItem />} />
@@ -29,6 +33,8 @@ export default function App() {
         <Route path="/history" element={<History />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <InstallBanner />
+      <UpdatePrompt />
     </BrowserRouter>
   )
 }
