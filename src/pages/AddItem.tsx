@@ -4,9 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Camera, ImagePlus, X, Barcode, IndianRupee, Calendar, ChevronDown, Loader2,
-  SwitchCamera, Aperture
+  SwitchCamera, Aperture, Users
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
+
+const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
+type MediatorOption = typeof MEDIATORS[number]
 
 export default function AddItem() {
   const navigate = useNavigate()
@@ -16,8 +19,7 @@ export default function AddItem() {
   const streamRef = useRef<MediaStream | null>(null)
 
   const [loading, setLoading] = useState(false)
-  const [nextSerial, setNextSerial] = useState('')
-  const [serialLoading, setSerialLoading] = useState(true)
+  const [serialLoading, setSerialLoading] = useState(false)
 
   const [serial, setSerial] = useState('')
   const [amount, setAmount] = useState('')
@@ -27,30 +29,89 @@ export default function AddItem() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
 
+  const [mediator, setMediator] = useState<MediatorOption | ''>('')
+  const [otherName, setOtherName] = useState('')
+
   const [cameraOpen, setCameraOpen] = useState(false)
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
 
-  // ─── Auto-fill serial from queue (natural numbers) ───
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const { data } = await supabase
-          .from('pawn_items')
-          .select('serial_number')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
+  // ─── Auto-generate serial number when mediator changes ───
+  const generateSerial = useCallback(async (med: MediatorOption | '', customName: string) => {
+    if (!med) { setSerial(''); return }
 
-        const next = generateNextSerial(data?.serial_number ?? null)
-        setNextSerial(next)
-        setSerial(next)
-      } catch {
-        setNextSerial('1')
-        setSerial('1')
+    setSerialLoading(true)
+    try {
+      let prefix: string
+      let pattern: string
+
+      if (med === 'Jagadesh') {
+        prefix = 'J-'
+        pattern = 'J-%'
+      } else if (med === 'Murali') {
+        prefix = 'M-'
+        pattern = 'M-%'
+      } else {
+        // Others — use full name lowercase
+        const name = customName.trim().toLowerCase()
+        if (!name) { setSerial(''); setSerialLoading(false); return }
+        prefix = name
+        pattern = `${name}%`
       }
+
+      // Query existing serial numbers with this prefix to find next number
+      const { data } = await supabase
+        .from('pawn_items')
+        .select('serial_number')
+        .like('serial_number', pattern)
+        .order('created_at', { ascending: false })
+
+      let maxNum = 0
+      if (data && data.length > 0) {
+        for (const row of data) {
+          const sn = row.serial_number
+          if (med === 'Others') {
+            // Pattern: charan01, charan02...
+            const match = sn.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`))
+            if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
+          } else {
+            // Pattern: J-1, J-2, M-1, M-2...
+            const match = sn.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`))
+            if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
+          }
+        }
+      }
+
+      const nextNum = maxNum + 1
+      if (med === 'Others') {
+        setSerial(`${prefix}${String(nextNum).padStart(2, '0')}`)
+      } else {
+        setSerial(`${prefix}${nextNum}`)
+      }
+    } catch {
+      toast.error('Failed to generate serial number')
+    } finally {
       setSerialLoading(false)
-    })()
+    }
   }, [])
+
+  const handleMediatorChange = (value: MediatorOption | '') => {
+    setMediator(value)
+    if (value !== 'Others') {
+      setOtherName('')
+      generateSerial(value, '')
+    } else {
+      setSerial('')
+    }
+  }
+
+  const handleOtherNameChange = (name: string) => {
+    setOtherName(name)
+    if (name.trim()) {
+      generateSerial('Others', name)
+    } else {
+      setSerial('')
+    }
+  }
 
   useEffect(() => {
     return () => { if (preview) URL.revokeObjectURL(preview) }
@@ -132,7 +193,9 @@ export default function AddItem() {
   }
 
   const handleSubmit = async () => {
-    if (!serial.trim()) { toast.error('Enter a serial number'); return }
+    if (!mediator) { toast.error('Select a mediator'); return }
+    if (mediator === 'Others' && !otherName.trim()) { toast.error('Enter mediator name'); return }
+    if (!serial.trim()) { toast.error('Serial number not generated'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
 
     let rate = Number(rateOption)
@@ -140,6 +203,8 @@ export default function AddItem() {
       rate = Number(customRate)
       if (!rate || rate <= 0) { toast.error('Enter a valid custom rate'); return }
     }
+
+    const mediatorName = mediator === 'Others' ? otherName.trim() : mediator
 
     setLoading(true)
     try {
@@ -160,6 +225,8 @@ export default function AddItem() {
 
       const { error } = await supabase.from('pawn_items').insert([{
         serial_number: serial.trim(),
+        mediator: mediator,
+        mediator_name: mediatorName,
         amount: Number(amount),
         interest_rate: rate,
         pledge_date: pledgeDate,
@@ -285,7 +352,39 @@ export default function AddItem() {
               onChange={e => { const f = e.target.files?.[0]; if (f) pickImage(f); e.target.value = '' }} />
           </div>
 
-          {/* ─── Serial Number ─── */}
+          {/* ─── Mediator ─── */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Users size={16} color="var(--accent)" />
+              Mediator
+            </label>
+            <div className="chip-group" style={{ marginBottom: mediator === 'Others' ? 10 : 0 }}>
+              {MEDIATORS.map(m => (
+                <button
+                  key={m}
+                  className={`chip ${mediator === m ? 'active' : ''}`}
+                  onClick={() => handleMediatorChange(m)}
+                  type="button"
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {mediator === 'Others' && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                <input
+                  className="field-input"
+                  style={{ width: '100%', fontSize: '1rem', fontWeight: 600 }}
+                  value={otherName}
+                  onChange={e => handleOtherNameChange(e.target.value)}
+                  placeholder="Enter mediator name"
+                  autoFocus
+                />
+              </motion.div>
+            )}
+          </div>
+
+          {/* ─── Serial Number (auto-generated) ─── */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'block' }}>
               Serial Number
@@ -294,12 +393,19 @@ export default function AddItem() {
               <Barcode size={18} color="var(--text-muted)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 className="field-input"
-                style={{ width: '100%', paddingLeft: 42, fontSize: '1rem', fontWeight: 600 }}
-                value={serial}
-                onChange={e => setSerial(e.target.value)}
-                placeholder={serialLoading ? 'Loading...' : `Next: ${nextSerial}`}
-                disabled={serialLoading}
+                style={{
+                  width: '100%', paddingLeft: 42, fontSize: '1rem', fontWeight: 700,
+                  background: serial ? 'var(--accent-light)' : 'var(--bg-input)',
+                  color: serial ? 'var(--accent)' : 'var(--text-muted)',
+                  letterSpacing: '0.02em'
+                }}
+                value={serialLoading ? 'Generating…' : serial}
+                readOnly
+                placeholder={!mediator ? 'Select mediator first' : 'Auto-generated'}
               />
+              {serialLoading && (
+                <Loader2 size={16} className="spin" style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--accent)' }} />
+              )}
             </div>
           </div>
 
@@ -392,11 +498,4 @@ export default function AddItem() {
 
 function todayStr(): string {
   return new Date().toISOString().split('T')[0]
-}
-
-function generateNextSerial(lastSerial: string | null): string {
-  if (!lastSerial) return '1'
-  const match = lastSerial.match(/(\d+)/)
-  if (!match) return '1'
-  return String(parseInt(match[1], 10) + 1)
 }

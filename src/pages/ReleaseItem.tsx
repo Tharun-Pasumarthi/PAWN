@@ -307,6 +307,7 @@ export default function ReleaseItem() {
                           #{itm.serial_number}
                         </div>
                         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {itm.mediator_name && <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{itm.mediator_name} · </span>}
                           {formatDate(itm.pledge_date)}
                         </div>
                       </div>

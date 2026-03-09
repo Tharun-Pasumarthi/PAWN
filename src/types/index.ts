@@ -1,6 +1,8 @@
 export interface PawnItem {
   id: string
   serial_number: string
+  mediator: string | null
+  mediator_name: string | null
   amount: number
   interest_rate: number
   pledge_date: string

@@ -179,7 +179,7 @@ export default function Dashboard() {
                     <div className="activity-body">
                       <div className="activity-title">#{item.serial_number}</div>
                       <div className="activity-sub">
-                        {item.status === 'active' ? 'Active pledge' : 'Released'}
+                        {item.mediator_name ? `${item.mediator_name} · ` : ''}{item.status === 'active' ? 'Active pledge' : 'Released'}
                       </div>
                     </div>
                     <div className="activity-right">

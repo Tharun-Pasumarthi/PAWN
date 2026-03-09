@@ -5,13 +5,8 @@ const RATE_1 = 1
 const RATE_1_15 = 1.15
 const MIN_DAYS = 15
 
-/** Rupee-per-100-per-month to annual decimal rate: rate 1 -> 0.12 */
-const rateToYearly = (rupeeRate: number): number => rupeeRate * 12 / 100
-
 const daysBetween = (start: Date, end: Date): number =>
   Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-
-const daysToYears = (days: number): number => days / 365
 
 /**
  * Count fractional months between two dates (for display only).
@@ -36,16 +31,31 @@ function countMonths(start: Date, end: Date): number {
 }
 
 /**
- * Compound interest: P * (1 + annualRate)^years
- * Compounding annually (12 M), matching standard pawn-shop calculators.
+ * Monthly compound interest using 30-day month convention.
+ * Full months compound, remaining days are pro-rated.
+ *
+ *   monthlyRate = rupees per 100 per month (e.g. 1 = 1%)
+ *
+ * Example: ₹20,000 at 1% for 15 days → 20,000 × 0.01 × (15/30) = ₹100
  */
-function compoundInterest(
+function monthlyCompoundInterest(
   principal: number,
-  yearlyRate: number,
-  years: number
+  monthlyRate: number,
+  days: number
 ): { finalAmount: number; interest: number } {
-  const finalAmount = principal * Math.pow(1 + yearlyRate, years)
-  return { finalAmount, interest: finalAmount - principal }
+  const rateDecimal = monthlyRate / 100
+  const fullMonths = Math.floor(days / 30)
+  const remainingDays = days % 30
+
+  // Compound for full months
+  let amount = principal * Math.pow(1 + rateDecimal, fullMonths)
+
+  // Pro-rate remaining partial month
+  if (remainingDays > 0) {
+    amount = amount + amount * rateDecimal * (remainingDays / 30)
+  }
+
+  return { finalAmount: amount, interest: amount - principal }
 }
 
 /**
@@ -69,7 +79,7 @@ export function calculatePawnInterest(
   if (rDate < pDate) throw new Error('Release date cannot be before pledge date')
 
   const actualDays = daysBetween(pDate, rDate)
-  const effectiveDays = actualDays <= MIN_DAYS ? MIN_DAYS : actualDays
+  const effectiveDays = actualDays < MIN_DAYS ? MIN_DAYS : actualDays
 
   const details: InterestResult['details'] = {
     principal,
@@ -77,7 +87,7 @@ export function calculatePawnInterest(
     releaseDate: rDate.toISOString().split('T')[0],
     actualDays,
     effectiveDays,
-    minDayRuleApplied: actualDays <= MIN_DAYS,
+    minDayRuleApplied: actualDays < MIN_DAYS,
     phases: []
   }
 
@@ -91,38 +101,32 @@ export function calculatePawnInterest(
     // PHASE 1: pledge_date -> Mar 31
     const mar31 = new Date('2025-03-31')
     const p1Days = daysBetween(pDate, mar31)
-    const p1Years = daysToYears(p1Days)
     const p1Months = countMonths(pDate, mar31)
-    const p1Rate = rateToYearly(r1)
-    const p1 = compoundInterest(principal, p1Rate, p1Years)
+    const p1 = monthlyCompoundInterest(principal, r1, p1Days)
 
     details.phases.push(
-      makePhase(1, pDate, mar31, p1Days, p1Months, r1, p1Rate, principal, p1.interest, p1.finalAmount)
+      makePhase(1, pDate, mar31, p1Days, p1Months, r1, principal, p1.interest, p1.finalAmount)
     )
 
     // PHASE 2: Apr 1 -> release_date
     const p2Days = daysBetween(APRIL_1_2025, rDate)
-    const p2Years = daysToYears(p2Days)
     const p2Months = countMonths(APRIL_1_2025, rDate)
-    const p2Rate = rateToYearly(r2)
-    const p2 = compoundInterest(p1.finalAmount, p2Rate, p2Years)
+    const p2 = monthlyCompoundInterest(p1.finalAmount, r2, p2Days)
 
     details.phases.push(
-      makePhase(2, APRIL_1_2025, rDate, p2Days, p2Months, r2, p2Rate, p1.finalAmount, p2.interest, p2.finalAmount)
+      makePhase(2, APRIL_1_2025, rDate, p2Days, p2Months, r2, p1.finalAmount, p2.interest, p2.finalAmount)
     )
 
     totalInterest = Math.round(p1.interest + p2.interest)
     finalAmount = principal + totalInterest
   } else {
-    const years = daysToYears(effectiveDays)
     const months = countMonths(pDate, rDate)
-    const yearlyRate = rateToYearly(rate)
-    const result = compoundInterest(principal, yearlyRate, years)
+    const result = monthlyCompoundInterest(principal, rate, effectiveDays)
     totalInterest = Math.round(result.interest)
     finalAmount = principal + totalInterest
 
     details.phases.push(
-      makePhase(1, pDate, rDate, effectiveDays, months, rate, yearlyRate, principal, result.interest, result.finalAmount)
+      makePhase(1, pDate, rDate, effectiveDays, months, rate, principal, result.interest, result.finalAmount)
     )
   }
 
@@ -131,7 +135,7 @@ export function calculatePawnInterest(
 
 function makePhase(
   phase: number, start: Date, end: Date, days: number, months: number,
-  rate: number, yearlyPct: number, principal: number, interest: number, output: number
+  rate: number, principal: number, interest: number, output: number
 ): PhaseDetail {
   return {
     phase,
@@ -140,7 +144,7 @@ function makePhase(
     days,
     months: months.toFixed(2),
     rate,
-    yearlyPercentage: (yearlyPct * 100).toFixed(2) + '%',
+    yearlyPercentage: (rate * 12).toFixed(2) + '%',
     principal: principal.toFixed(2),
     interest: Math.round(interest).toString(),
     output: Math.round(output).toString()
