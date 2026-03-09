@@ -4,16 +4,18 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Camera, ImagePlus, X, Barcode, IndianRupee, Calendar, ChevronDown, Loader2,
-  SwitchCamera, Aperture, Users, Edit3, Trash2, CheckCircle
+  SwitchCamera, Aperture, Users, Edit3, Trash2, CheckCircle, Gem
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
 import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
+import { useAuth } from '../contexts/AuthContext'
 
 const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
 type MediatorOption = typeof MEDIATORS[number]
 
 export default function AddItem() {
   const navigate = useNavigate()
+  const { isSuperUser } = useAuth()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -26,7 +28,7 @@ export default function AddItem() {
   const [serialLoading, setSerialLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const [savedItem, setSavedItem] = useState<{ id: string; serial_number: string; amount: number; pledge_date: string; interest_rate: number; mediator_name: string; image_url: string | null } | null>(null)
+  const [savedItem, setSavedItem] = useState<{ id: string; serial_number: string; amount: number; pledge_date: string; interest_rate: number; mediator_name: string; image_url: string | null; customer_name?: string; item_type?: string } | null>(null)
   const [editMode, setEditMode] = useState(false)
 
   const [serial, setSerial] = useState('')
@@ -39,6 +41,10 @@ export default function AddItem() {
 
   const [mediator, setMediator] = useState<MediatorOption | ''>('')
   const [otherName, setOtherName] = useState('')
+
+  // Non-super-user fields
+  const [itemType, setItemType] = useState<'Gold' | 'Silver' | 'Other' | ''>('')
+  const [customerName, setCustomerName] = useState('')
 
   const [cameraOpen, setCameraOpen] = useState(false)
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
@@ -78,6 +84,10 @@ export default function AddItem() {
           setOtherName(data.mediator_name ?? '')
         }
 
+        // Set non-super-user fields
+        if (data.item_type) setItemType(data.item_type as 'Gold' | 'Silver' | 'Other')
+        if (data.customer_name) setCustomerName(data.customer_name)
+
         setSavedItem({
           id: data.id,
           serial_number: data.serial_number,
@@ -85,7 +95,9 @@ export default function AddItem() {
           pledge_date: data.pledge_date,
           interest_rate: data.interest_rate,
           mediator_name: data.mediator_name ?? '',
-          image_url: data.image_url
+          image_url: data.image_url,
+          customer_name: data.customer_name ?? '',
+          item_type: data.item_type ?? '',
         })
         setEditMode(true)
       } catch {
@@ -175,6 +187,40 @@ export default function AddItem() {
     }
   }
 
+  // ─── Serial generation for non-super-users (Gold/Silver/Other) ───
+  const generateSerialByType = useCallback(async (type: 'Gold' | 'Silver' | 'Other') => {
+    setSerialLoading(true)
+    try {
+      const prefix = type === 'Gold' ? 'G' : type === 'Silver' ? 'S' : 'O'
+      const pattern = `${prefix}%`
+
+      const { data } = await supabase
+        .from('pawn_items')
+        .select('serial_number')
+        .like('serial_number', pattern)
+        .order('created_at', { ascending: false })
+
+      let maxNum = 0
+      if (data && data.length > 0) {
+        for (const row of data) {
+          const match = row.serial_number.match(new RegExp(`^${prefix}(\\d+)$`))
+          if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
+        }
+      }
+
+      setSerial(`${prefix}${maxNum + 1}`)
+    } catch {
+      toast.error('Failed to generate serial number')
+    } finally {
+      setSerialLoading(false)
+    }
+  }, [])
+
+  const handleItemTypeChange = (type: 'Gold' | 'Silver' | 'Other') => {
+    setItemType(type)
+    generateSerialByType(type)
+  }
+
   useEffect(() => {
     return () => { if (preview) URL.revokeObjectURL(preview) }
   }, [preview])
@@ -255,8 +301,14 @@ export default function AddItem() {
   }
 
   const handleSubmit = async () => {
-    if (!mediator) { toast.error('Select a mediator'); return }
-    if (mediator === 'Others' && !otherName.trim()) { toast.error('Enter mediator name'); return }
+    if (isSuperUser) {
+      if (!mediator) { toast.error('Select a mediator'); return }
+      if (mediator === 'Others' && !otherName.trim()) { toast.error('Enter mediator name'); return }
+    } else {
+      if (!itemType) { toast.error('Select item type'); return }
+      if (!customerName.trim()) { toast.error('Enter customer name'); return }
+      if (!imageFile && !preview) { toast.error('Photo is required'); return }
+    }
     if (!serial.trim()) { toast.error('Serial number not generated'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
 
@@ -287,8 +339,10 @@ export default function AddItem() {
 
       const { data: inserted, error } = await supabase.from('pawn_items').insert([{
         serial_number: serial.trim(),
-        mediator: mediator,
-        mediator_name: mediatorName,
+        mediator: isSuperUser ? mediator : null,
+        mediator_name: isSuperUser ? mediatorName : null,
+        item_type: isSuperUser ? null : itemType,
+        customer_name: isSuperUser ? null : customerName.trim(),
         amount: Number(amount),
         interest_rate: rate,
         pledge_date: pledgeDate,
@@ -308,8 +362,10 @@ export default function AddItem() {
         amount: Number(amount),
         pledge_date: pledgeDate,
         interest_rate: rate,
-        mediator_name: mediatorName,
-        image_url: imageUrl
+        mediator_name: isSuperUser ? mediatorName : '',
+        image_url: imageUrl,
+        customer_name: isSuperUser ? undefined : customerName.trim(),
+        item_type: isSuperUser ? undefined : itemType,
       })
       setEditMode(false)
     } catch (err: any) {
@@ -352,13 +408,18 @@ export default function AddItem() {
         imageUrl = urlData.publicUrl
       }
 
-      const { error } = await supabase.from('pawn_items')
-        .update({
+      const updateData: Record<string, unknown> = {
           amount: Number(amount),
           interest_rate: rate,
           pledge_date: pledgeDate,
           image_url: imageUrl
-        })
+        }
+      if (!isSuperUser) {
+        updateData.customer_name = customerName.trim()
+      }
+
+      const { error } = await supabase.from('pawn_items')
+        .update(updateData)
         .eq('id', savedItem.id)
 
       if (error) throw error
@@ -441,10 +502,23 @@ export default function AddItem() {
                 <span className="detail-key">Serial</span>
                 <span className="detail-val" style={{ fontWeight: 700 }}>#{savedItem.serial_number}</span>
               </div>
-              <div className="detail-row" style={{ padding: '8px 0' }}>
-                <span className="detail-key">Mediator</span>
-                <span className="detail-val">{savedItem.mediator_name}</span>
-              </div>
+              {isSuperUser ? (
+                <div className="detail-row" style={{ padding: '8px 0' }}>
+                  <span className="detail-key">Mediator</span>
+                  <span className="detail-val">{savedItem.mediator_name}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                    <span className="detail-key">Type</span>
+                    <span className="detail-val">{savedItem.item_type}</span>
+                  </div>
+                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                    <span className="detail-key">Customer</span>
+                    <span className="detail-val">{savedItem.customer_name}</span>
+                  </div>
+                </>
+              )}
               <div className="detail-row" style={{ padding: '8px 0' }}>
                 <span className="detail-key">Amount</span>
                 <span className="detail-val" style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{savedItem.amount.toLocaleString('en-IN')}</span>
@@ -579,7 +653,8 @@ export default function AddItem() {
               onChange={e => { const f = e.target.files?.[0]; if (f) pickImage(f); e.target.value = '' }} />
           </div>
 
-          {/* ─── Mediator ─── */}
+          {/* ─── Mediator (super user) or Item Type + Customer Name (others) ─── */}
+          {isSuperUser ? (
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={16} color="var(--accent)" />
@@ -610,6 +685,44 @@ export default function AddItem() {
               </motion.div>
             )}
           </div>
+          ) : (
+          <>
+            {/* Item Type */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Gem size={16} color="var(--accent)" />
+                Item Type
+              </label>
+              <div className="chip-group">
+                {(['Gold', 'Silver', 'Other'] as const).map(t => (
+                  <button
+                    key={t}
+                    className={`chip ${itemType === t ? 'active' : ''}`}
+                    onClick={() => handleItemTypeChange(t)}
+                    type="button"
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Customer Name */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Users size={16} color="var(--accent)" />
+                Customer Name
+              </label>
+              <input
+                className="field-input"
+                style={{ width: '100%', fontSize: '1rem', fontWeight: 600 }}
+                value={customerName}
+                onChange={e => setCustomerName(e.target.value)}
+                placeholder="Enter customer name"
+              />
+            </div>
+          </>
+          )}
 
           {/* ─── Serial Number (auto-generated) ─── */}
           <div style={{ marginBottom: 20 }}>
@@ -628,7 +741,7 @@ export default function AddItem() {
                 }}
                 value={serialLoading ? 'Generating…' : serial}
                 readOnly
-                placeholder={!mediator ? 'Select mediator first' : 'Auto-generated'}
+                placeholder={isSuperUser ? (!mediator ? 'Select mediator first' : 'Auto-generated') : (!itemType ? 'Select item type first' : 'Auto-generated')}
               />
               {serialLoading && (
                 <Loader2 size={16} className="spin" style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--accent)' }} />

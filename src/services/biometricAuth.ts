@@ -7,7 +7,17 @@
  * 2. Authenticate — verifies using stored credential
  */
 
-const STORAGE_KEY = 'pawnvault_bio_users'
+// ─── User-scoped localStorage (multi-tenant) ───
+let _activeUserId = ''
+
+/** Called by AuthContext to namespace localStorage per shop account */
+export function setActiveUserId(id: string) { _activeUserId = id }
+
+function scopedKey(base: string): string {
+  return _activeUserId ? `${base}_${_activeUserId}` : base
+}
+
+const STORAGE_KEY_BASE = 'pawnvault_bio_users'
 
 export interface BioUser {
   name: string
@@ -30,12 +40,12 @@ function fromBase64(str: string): Uint8Array {
 
 function getUsers(): BioUser[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    return JSON.parse(localStorage.getItem(scopedKey(STORAGE_KEY_BASE)) || '[]')
   } catch { return [] }
 }
 
 function saveUsers(users: BioUser[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(users))
+  localStorage.setItem(scopedKey(STORAGE_KEY_BASE), JSON.stringify(users))
 }
 
 // ─── Public API ───
@@ -209,11 +219,11 @@ export async function requestBiometricAuth(_reason: string = 'Verify your identi
 
 import * as OTPAuth from 'otpauth'
 
-const TOTP_SECRET_KEY = 'pawnvault_totp_secret'
+const TOTP_SECRET_KEY_BASE = 'pawnvault_totp_secret'
 
 /** Check if TOTP (authenticator app) has been set up */
 export function isTotpSetUp(): boolean {
-  return !!localStorage.getItem(TOTP_SECRET_KEY)
+  return !!localStorage.getItem(scopedKey(TOTP_SECRET_KEY_BASE))
 }
 
 /** Generate a new TOTP secret and return the setup data (secret + otpauth URI) */
@@ -234,12 +244,17 @@ export function generateTotpSecret(): { secret: string; uri: string } {
 
 /** Save the TOTP secret after successful verification */
 export function saveTotpSecret(base32Secret: string): void {
-  localStorage.setItem(TOTP_SECRET_KEY, base32Secret)
+  localStorage.setItem(scopedKey(TOTP_SECRET_KEY_BASE), base32Secret)
+}
+
+/** Remove the TOTP secret (rollback on failed first-time verify) */
+export function removeTotpSecret(): void {
+  localStorage.removeItem(scopedKey(TOTP_SECRET_KEY_BASE))
 }
 
 /** Verify a 6-digit code from the authenticator app */
 export function verifyTotpCode(code: string): boolean {
-  const stored = localStorage.getItem(TOTP_SECRET_KEY)
+  const stored = localStorage.getItem(scopedKey(TOTP_SECRET_KEY_BASE))
   if (!stored) return false
 
   const totp = new OTPAuth.TOTP({

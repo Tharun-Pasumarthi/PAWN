@@ -1,23 +1,26 @@
 import { useEffect, useState, useMemo } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Search, Plus, Edit3, Trash2, Package, Gem, Loader2,
-  ChevronDown, ChevronUp, IndianRupee, Calendar, Users, Filter,
-  LayoutGrid, FileText, Clock, CheckCircle, Settings
+  ChevronDown, ChevronUp
 } from 'lucide-react'
-import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
+import { supabase } from '../services/supabaseClient'
 import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
+import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem } from '../types'
 
 type FilterStatus = 'all' | 'active' | 'released'
 
 export default function Items() {
   const navigate = useNavigate()
-  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const shopFilter = searchParams.get('shop')
+  const { user, isSuperUser } = useAuth()
 
   const [items, setItems] = useState<PawnItem[]>([])
+  const [shopName, setShopName] = useState('')
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterStatus>('active')
@@ -41,25 +44,44 @@ export default function Items() {
 
   useEffect(() => { fetchItems() }, [])
 
+  // Fetch shop name when filtering by shop
+  useEffect(() => {
+    if (!shopFilter) { setShopName(''); return }
+    ;(async () => {
+      const { data } = await supabase
+        .from('shops')
+        .select('shop_name, phone')
+        .eq('user_id', shopFilter)
+        .single()
+      if (data) setShopName(data.shop_name || data.phone || shopFilter.slice(0, 8))
+    })()
+  }, [shopFilter])
+
   const filtered = useMemo(() => {
     let list = items
+    if (shopFilter) list = list.filter(i => (i as any).user_id === shopFilter)
     if (filter !== 'all') list = list.filter(i => i.status === filter)
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       list = list.filter(i =>
         i.serial_number.toLowerCase().includes(q) ||
         (i.mediator_name ?? '').toLowerCase().includes(q) ||
+        (i.customer_name ?? '').toLowerCase().includes(q) ||
         String(i.amount).includes(q)
       )
     }
     return list
-  }, [items, filter, search])
+  }, [items, filter, search, shopFilter])
+
+  const shopItems = useMemo(() => {
+    return shopFilter ? items.filter(i => (i as any).user_id === shopFilter) : items
+  }, [items, shopFilter])
 
   const counts = useMemo(() => ({
-    all: items.length,
-    active: items.filter(i => i.status === 'active').length,
-    released: items.filter(i => i.status === 'released').length,
-  }), [items])
+    all: shopItems.length,
+    active: shopItems.filter(i => i.status === 'active').length,
+    released: shopItems.filter(i => i.status === 'released').length,
+  }), [shopItems])
 
   const handleEdit = async (item: PawnItem) => {
     const verified = await requestBiometricAuth('Authenticate to edit this pledge')
@@ -93,16 +115,14 @@ export default function Items() {
     }
   }
 
-  const activePath = location.pathname
-
   return (
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <button className="topbar-back" onClick={() => navigate('/')}>
+          <button className="topbar-back" onClick={() => shopFilter ? navigate('/items') : navigate('/')}>
             <ArrowLeft size={18} />
           </button>
-          <span className="topbar-title">All Items</span>
+          <span className="topbar-title">{shopFilter && shopName ? shopName : 'All Items'}</span>
           <div className="topbar-actions">
             <motion.button
               className="btn btn-primary btn-sm"
@@ -127,7 +147,7 @@ export default function Items() {
             style={{ width: '100%', paddingLeft: 42, fontSize: '0.9375rem' }}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by serial, mediator, or amount…"
+            placeholder="Search by serial, name, or amount…"
           />
         </div>
 
@@ -211,7 +231,7 @@ export default function Items() {
                           </span>
                         </div>
                         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                          {item.mediator_name ?? 'No mediator'} · {new Date(item.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {item.customer_name || item.mediator_name || '—'} · {new Date(item.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </div>
                       </div>
 
@@ -250,10 +270,24 @@ export default function Items() {
                                 <span className="detail-key">Serial Number</span>
                                 <span className="detail-val" style={{ fontWeight: 700 }}>#{item.serial_number}</span>
                               </div>
-                              <div className="detail-row" style={{ padding: '8px 0' }}>
-                                <span className="detail-key">Mediator</span>
-                                <span className="detail-val">{item.mediator_name ?? '—'}</span>
-                              </div>
+                              {item.customer_name && (
+                                <div className="detail-row" style={{ padding: '8px 0' }}>
+                                  <span className="detail-key">Customer</span>
+                                  <span className="detail-val">{item.customer_name}</span>
+                                </div>
+                              )}
+                              {item.item_type && (
+                                <div className="detail-row" style={{ padding: '8px 0' }}>
+                                  <span className="detail-key">Type</span>
+                                  <span className="detail-val">{item.item_type}</span>
+                                </div>
+                              )}
+                              {item.mediator_name && (
+                                <div className="detail-row" style={{ padding: '8px 0' }}>
+                                  <span className="detail-key">Mediator</span>
+                                  <span className="detail-val">{item.mediator_name}</span>
+                                </div>
+                              )}
                               <div className="detail-row" style={{ padding: '8px 0' }}>
                                 <span className="detail-key">Amount</span>
                                 <span className="detail-val" style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{Number(item.amount).toLocaleString('en-IN')}</span>
@@ -275,7 +309,7 @@ export default function Items() {
                             </div>
 
                             {/* Action buttons — only for active items */}
-                            {item.status === 'active' && (
+                            {item.status === 'active' && (!isSuperUser || item.user_id === user?.id) && (
                               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                                 <motion.button
                                   className="btn btn-full"
@@ -308,27 +342,6 @@ export default function Items() {
           </div>
         )}
       </main>
-
-      {/* ─── Bottom Nav ─── */}
-      <nav className="bottom-nav">
-        <div className="bottom-nav-inner">
-          <button className={`nav-item ${activePath === '/' ? 'active' : ''}`} onClick={() => navigate('/')}>
-            <LayoutGrid size={20} /><span>Dashboard</span>
-          </button>
-          <button className={`nav-item ${activePath === '/items' ? 'active' : ''}`} onClick={() => navigate('/items')}>
-            <FileText size={20} /><span>Items</span>
-          </button>
-          <button className={`nav-item ${activePath === '/history' ? 'active' : ''}`} onClick={() => navigate('/history')}>
-            <Clock size={20} /><span>History</span>
-          </button>
-          <button className={`nav-item ${activePath === '/release' ? 'active' : ''}`} onClick={() => navigate('/release')}>
-            <CheckCircle size={20} /><span>Release</span>
-          </button>
-          <button className={`nav-item ${activePath === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')}>
-            <Settings size={20} /><span>Settings</span>
-          </button>
-        </div>
-      </nav>
     </>
   )
 }

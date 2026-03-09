@@ -39,7 +39,8 @@ export default function History() {
 
   const searched = query
     ? data.filter(r =>
-        r.serial_number.toLowerCase().includes(query.toLowerCase())
+        r.serial_number.toLowerCase().includes(query.toLowerCase()) ||
+        (r.customer_name ?? '').toLowerCase().includes(query.toLowerCase())
       )
     : data
 
@@ -131,7 +132,7 @@ export default function History() {
           <input
             className="field-input"
             style={{ paddingLeft: 38, borderRadius: 12 }}
-            placeholder="Search by serial number…"
+            placeholder="Search by serial or customer…"
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
@@ -190,6 +191,11 @@ export default function History() {
                       )}
                       <div className="history-body">
                         <span className="history-serial">#{row.serial_number}</span>
+                        {row.customer_name && (
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            {row.customer_name}
+                          </span>
+                        )}
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           Released {shortDate(row.release_date)}
                         </span>

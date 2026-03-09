@@ -57,6 +57,7 @@ export default function ReleaseItem() {
     if (!filterText.trim()) return true
     const q = filterText.toLowerCase()
     return i.serial_number.toLowerCase().includes(q) ||
+      (i.customer_name ?? '').toLowerCase().includes(q) ||
       String(i.amount).includes(q)
   })
 
@@ -201,6 +202,7 @@ export default function ReleaseItem() {
 
       const { error: hErr } = await supabase.from('pawn_history').insert([{
         serial_number: item.serial_number,
+        customer_name: item.customer_name ?? null,
         amount: item.amount,
         interest_rate: historyRate,
         pledge_date: item.pledge_date,
@@ -346,6 +348,7 @@ export default function ReleaseItem() {
                           #{itm.serial_number}
                         </div>
                         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {itm.customer_name && <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{itm.customer_name} · </span>}
                           {itm.mediator_name && <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{itm.mediator_name} · </span>}
                           {formatDate(itm.pledge_date)}
                         </div>
@@ -386,6 +389,11 @@ export default function ReleaseItem() {
                       <div style={{ fontWeight: 800, fontSize: '1.0625rem', color: 'var(--text-primary)', marginBottom: 6 }}>
                         Serial: #{item.serial_number}
                       </div>
+                      {item.customer_name && (
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>
+                          Customer: {item.customer_name}
+                        </div>
+                      )}
                       <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--accent)', marginBottom: 4 }}>
                         Pledge: ₹{Number(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </div>

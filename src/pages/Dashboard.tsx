@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Plus, CheckCircle, Clock, ChevronRight, LayoutGrid, FileText, Scale,
-  Bell, Gem, Package, Settings
+  Plus, CheckCircle, ChevronRight, LayoutGrid, FileText, Scale,
+  Bell, Gem, Package, LogOut, Store
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem } from '../types'
 
 interface Stats {
@@ -14,10 +15,19 @@ interface Stats {
   totalPledged: number
 }
 
+interface ShopStats {
+  userId: string
+  active: number
+  released: number
+  totalPledged: number
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
-  const location = useLocation()
+  const { shopName, signOut, isSuperUser } = useAuth()
   const [stats, setStats] = useState<Stats>({ active: 0, released: 0, totalPledged: 0 })
+  const [shopStats, setShopStats] = useState<ShopStats[]>([])
+  const [shopNames, setShopNames] = useState<Record<string, string>>({})
   const [recent, setRecent] = useState<PawnItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -37,13 +47,34 @@ export default function Dashboard() {
               .reduce((s, i) => s + Number(i.amount), 0)
           })
           setRecent(items.slice(0, 4) as PawnItem[])
+
+          // Per-shop breakdown for super user
+          if (isSuperUser) {
+            const byShop = new Map<string, { active: number; released: number; totalPledged: number }>()
+            for (const it of items) {
+              const uid = (it as any).user_id ?? 'unknown'
+              if (!byShop.has(uid)) byShop.set(uid, { active: 0, released: 0, totalPledged: 0 })
+              const s = byShop.get(uid)!
+              if (it.status === 'active') { s.active++; s.totalPledged += Number(it.amount) }
+              else { s.released++ }
+            }
+            setShopStats(Array.from(byShop.entries()).map(([userId, s]) => ({ userId, ...s })))
+
+            // Fetch shop names from the shops view
+            const { data: shops } = await supabase
+              .from('shops')
+              .select('user_id, shop_name, phone')
+            if (shops) {
+              const names: Record<string, string> = {}
+              for (const s of shops) names[s.user_id] = s.shop_name || s.phone || s.user_id.slice(0, 8)
+              setShopNames(names)
+            }
+          }
         }
       } catch { /* ignore */ }
       setLoading(false)
     })()
   }, [])
-
-  const activePath = location.pathname
 
   return (
     <>
@@ -51,19 +82,19 @@ export default function Dashboard() {
       <header className="topbar">
         <div className="topbar-inner">
           <Scale size={24} color="var(--accent)" />
-          <span className="topbar-title">Pawn Manager</span>
+          <span className="topbar-title">{shopName}{isSuperUser ? ' · All Shops' : ''}</span>
           <div className="topbar-actions">
             <button className="topbar-back" style={{ border: 'none' }}>
               <Bell size={18} />
             </button>
-            <div style={{
-              width: 36, height: 36, borderRadius: '50%',
-              background: 'var(--gold-bg)', border: '2px solid var(--gold)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '0.75rem', fontWeight: 700, color: 'var(--gold)'
-            }}>
-              PM
-            </div>
+            <button
+              className="topbar-back"
+              style={{ border: 'none' }}
+              onClick={signOut}
+              title="Sign out"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </div>
       </header>
@@ -105,6 +136,62 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.section>
+
+        {/* ─── Per-Shop Breakdown (super user only) ─── */}
+        {isSuperUser && !loading && shopStats.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.4 }}
+            style={{ marginBottom: 28 }}
+          >
+            <div className="section-header" style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Store size={18} color="var(--accent)" />
+                <span className="section-title">Shop Breakdown</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {shopStats.map(shop => (
+                <div
+                  key={shop.userId}
+                  className="card"
+                  style={{ padding: '14px 18px', cursor: 'pointer' }}
+                  onClick={() => navigate(`/items?shop=${shop.userId}`)}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+                      {shopNames[shop.userId] || shop.userId.slice(0, 8)}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                        {shop.active + shop.released} total
+                      </span>
+                      <ChevronRight size={16} color="var(--text-muted)" />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Active</div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--accent)' }}>{shop.active}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Released</div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--success)' }}>{shop.released}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Pledged</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                        ₹{shop.totalPledged.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        )}
 
         {/* ─── Quick Actions ─── */}
         <motion.section
@@ -199,27 +286,6 @@ export default function Dashboard() {
           </div>
         </motion.section>
       </main>
-
-      {/* ─── Bottom Nav ─── */}
-      <nav className="bottom-nav">
-        <div className="bottom-nav-inner">
-          <button className={`nav-item ${activePath === '/' ? 'active' : ''}`} onClick={() => navigate('/')}>
-            <LayoutGrid size={20} /><span>Dashboard</span>
-          </button>
-          <button className={`nav-item ${activePath === '/items' ? 'active' : ''}`} onClick={() => navigate('/items')}>
-            <FileText size={20} /><span>Items</span>
-          </button>
-          <button className={`nav-item ${activePath === '/history' ? 'active' : ''}`} onClick={() => navigate('/history')}>
-            <Clock size={20} /><span>History</span>
-          </button>
-          <button className={`nav-item ${activePath === '/release' ? 'active' : ''}`} onClick={() => navigate('/release')}>
-            <CheckCircle size={20} /><span>Release</span>
-          </button>
-          <button className={`nav-item ${activePath === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')}>
-            <Settings size={20} /><span>Settings</span>
-          </button>
-        </div>
-      </nav>
     </>
   )
 }

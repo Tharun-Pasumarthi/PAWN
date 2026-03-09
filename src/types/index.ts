@@ -1,8 +1,11 @@
 export interface PawnItem {
   id: string
+  user_id?: string
   serial_number: string
   mediator: string | null
   mediator_name: string | null
+  item_type: string | null
+  customer_name: string | null
   amount: number
   interest_rate: number
   pledge_date: string
@@ -15,6 +18,7 @@ export interface PawnItem {
 export interface PawnHistory {
   id: string
   serial_number: string
+  customer_name: string | null
   amount: number
   interest_rate: number
   pledge_date: string

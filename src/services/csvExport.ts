@@ -4,7 +4,7 @@ export function exportToCSV(data: PawnHistory[], filename = 'pawn-history.csv'):
   if (!data.length) return
 
   const headers = [
-    'serial_number', 'amount', 'interest_rate',
+    'serial_number', 'customer_name', 'amount', 'interest_rate',
     'pledge_date', 'release_date', 'total_interest', 'final_amount'
   ]
 

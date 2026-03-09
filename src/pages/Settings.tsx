@@ -16,6 +16,7 @@ import {
   isTotpSetUp,
   generateTotpSecret,
   saveTotpSecret,
+  removeTotpSecret,
   verifyTotpCode,
   type BioUser
 } from '../services/biometricAuth'
@@ -81,7 +82,7 @@ export default function Settings() {
 
     if (!totpExists && !valid) {
       // Rollback: remove the temp-saved secret since verification failed
-      localStorage.removeItem('pawnvault_totp_secret')
+      removeTotpSecret()
     }
 
     if (valid) {
