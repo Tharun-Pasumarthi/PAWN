@@ -27,6 +27,7 @@ export default function ReleaseItem() {
   const [p1Custom, setP1Custom] = useState('')
   const [p2Rate, setP2Rate] = useState<string>('1.15')
   const [p2Custom, setP2Custom] = useState('')
+  const [usePhaseCalculator, setUsePhaseCalculator] = useState(false)
   const [releaseDate, setReleaseDate] = useState(todayStr())
   const [calc, setCalc] = useState<InterestResult | null>(null)
   const [showPhases, setShowPhases] = useState(false)
@@ -61,14 +62,16 @@ export default function ReleaseItem() {
     setItem(picked)
     setSerial(picked.serial_number)
     setCalc(null)
-    const isTwo = isTwoPhase(picked.pledge_date, releaseDate, picked.mediator_name)
-    if (isTwo) {
+    const mandatoryPhase = isTwoPhase(picked.pledge_date, releaseDate, picked.mediator_name)
+    if (mandatoryPhase) {
+      setUsePhaseCalculator(true)
       setP1Rate('1')
       setP2Rate('1.15')
-      recalculate(picked, '1', '', releaseDate, '1', '', '1.15', '')
+      recalculate(picked, '1', '', releaseDate, '1', '', '1.15', '', true)
     } else {
+      setUsePhaseCalculator(false)
       setRateOption(String(picked.interest_rate))
-      recalculate(picked, String(picked.interest_rate), '', releaseDate, '1', '', '1.15', '')
+      recalculate(picked, String(picked.interest_rate), '', releaseDate, '1', '', '1.15', '', false)
     }
   }
 
@@ -87,14 +90,16 @@ export default function ReleaseItem() {
       if (error) throw error
       if (!data) { toast.error('Item not found or already released'); return }
       setItem(data as PawnItem)
-      const isTwo = isTwoPhase(data.pledge_date, releaseDate, (data as PawnItem).mediator_name)
-      if (isTwo) {
+      const mandatoryPhase = isTwoPhase(data.pledge_date, releaseDate, (data as PawnItem).mediator_name)
+      if (mandatoryPhase) {
+        setUsePhaseCalculator(true)
         setP1Rate('1')
         setP2Rate('1.15')
-        recalculate(data as PawnItem, '1', '', releaseDate, '1', '', '1.15', '')
+        recalculate(data as PawnItem, '1', '', releaseDate, '1', '', '1.15', '', true)
       } else {
+        setUsePhaseCalculator(false)
         setRateOption(String(data.interest_rate))
-        recalculate(data as PawnItem, String(data.interest_rate), '', releaseDate, '1', '', '1.15', '')
+        recalculate(data as PawnItem, String(data.interest_rate), '', releaseDate, '1', '', '1.15', '', false)
       }
     } catch (err: any) {
       toast.error(err.message ?? 'Search failed')
@@ -103,7 +108,9 @@ export default function ReleaseItem() {
     }
   }, [serial, releaseDate])
 
-  const twoPhase = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name) : false
+  const phaseMandatory = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name) : false
+  const phaseEligible = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name, true) : false
+  const twoPhase = item ? (phaseMandatory || (usePhaseCalculator && phaseEligible)) : false
 
   const resolveRate = (opt: string, custom: string): number | undefined => {
     if (opt === 'custom') {
@@ -121,17 +128,20 @@ export default function ReleaseItem() {
     pr1: string = p1Rate,
     pc1: string = p1Custom,
     pr2: string = p2Rate,
-    pc2: string = p2Custom
+    pc2: string = p2Custom,
+    phaseToggle: boolean = usePhaseCalculator
   ) => {
     if (!it) return
-    const isTwo = isTwoPhase(it.pledge_date, rDate, it.mediator_name)
+    const mandatoryPhase = isTwoPhase(it.pledge_date, rDate, it.mediator_name)
+    const phaseEligibleNow = isTwoPhase(it.pledge_date, rDate, it.mediator_name, true)
+    const isTwo = mandatoryPhase || (phaseToggle && phaseEligibleNow)
 
     if (isTwo) {
       const r1 = resolveRate(pr1, pc1)
       const r2 = resolveRate(pr2, pc2)
       if (!r1 || !r2) { setCalc(null); return }
       try {
-        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2, it.mediator_name))
+        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2, it.mediator_name, isTwo))
       } catch (err: any) { toast.error(err.message); setCalc(null) }
     } else {
       let rate = Number(rOpt)
@@ -145,13 +155,25 @@ export default function ReleaseItem() {
     }
   }
 
-  const onRateChange = (v: string) => { setRateOption(v); recalculate(item, v, customRate, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom) }
-  const onCustomChange = (v: string) => { setCustomRate(v); recalculate(item, 'custom', v, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom) }
-  const onDateChange = (v: string) => { setReleaseDate(v); recalculate(item, rateOption, customRate, v, p1Rate, p1Custom, p2Rate, p2Custom) }
-  const onP1Change = (v: string) => { setP1Rate(v); recalculate(item, rateOption, customRate, releaseDate, v, p1Custom, p2Rate, p2Custom) }
-  const onP1Custom = (v: string) => { setP1Custom(v); recalculate(item, rateOption, customRate, releaseDate, 'custom', v, p2Rate, p2Custom) }
-  const onP2Change = (v: string) => { setP2Rate(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, v, p2Custom) }
-  const onP2Custom = (v: string) => { setP2Custom(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, 'custom', v) }
+  const onRateChange = (v: string) => { setRateOption(v); recalculate(item, v, customRate, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, usePhaseCalculator) }
+  const onCustomChange = (v: string) => { setCustomRate(v); recalculate(item, 'custom', v, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, usePhaseCalculator) }
+  const onDateChange = (v: string) => { setReleaseDate(v); recalculate(item, rateOption, customRate, v, p1Rate, p1Custom, p2Rate, p2Custom, usePhaseCalculator) }
+  const onP1Change = (v: string) => { setP1Rate(v); recalculate(item, rateOption, customRate, releaseDate, v, p1Custom, p2Rate, p2Custom, usePhaseCalculator) }
+  const onP1Custom = (v: string) => { setP1Custom(v); recalculate(item, rateOption, customRate, releaseDate, 'custom', v, p2Rate, p2Custom, usePhaseCalculator) }
+  const onP2Change = (v: string) => { setP2Rate(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, v, p2Custom, usePhaseCalculator) }
+  const onP2Custom = (v: string) => { setP2Custom(v); recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, 'custom', v, usePhaseCalculator) }
+  const onPhaseToggle = () => {
+    if (!item || !phaseEligible || phaseMandatory) return
+    const next = !usePhaseCalculator
+    setUsePhaseCalculator(next)
+    const nextP1Rate = next ? '1' : p1Rate
+    const nextP2Rate = next ? '1.15' : p2Rate
+    if (next) {
+      setP1Rate('1')
+      setP2Rate('1.15')
+    }
+    recalculate(item, rateOption, customRate, releaseDate, nextP1Rate, p1Custom, nextP2Rate, p2Custom, next)
+  }
 
   const handleRelease = async () => {
     if (!item || !calc) return
@@ -367,6 +389,27 @@ export default function ReleaseItem() {
                   <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 16 }}>
                     Interest Calculation
                   </div>
+
+                  {phaseEligible && (
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' }}>
+                        Phase Calculator
+                      </label>
+                      <button
+                        className={`chip ${twoPhase ? 'active' : ''}`}
+                        onClick={onPhaseToggle}
+                        disabled={phaseMandatory}
+                      >
+                        {twoPhase ? 'Enabled' : 'Enable'}
+                        {phaseMandatory ? ' (Mandatory for M series)' : ''}
+                      </button>
+                      <div style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {phaseMandatory
+                          ? 'This M-series pledge must use phase-wise calculation before and after Apr 2025.'
+                          : 'Optional: turn this on to split interest before and after Apr 2025.'}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Rate controls */}
                   {twoPhase ? (

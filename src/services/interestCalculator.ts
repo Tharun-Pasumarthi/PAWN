@@ -74,9 +74,16 @@ function annualCompoundInterest(
  * Check if a pledge spans the Apr 1 2025 boundary.
  * Two-phase breakdown only applies to M-series (Murali) items.
  */
-export function isTwoPhase(pledgeDate: string | Date, releaseDate: string | Date, mediator?: string | null): boolean {
-  if (mediator && mediator.toLowerCase() !== 'murali') return false
-  return new Date(pledgeDate) < APRIL_1_2025 && new Date(releaseDate) >= APRIL_1_2025
+export function isTwoPhase(
+  pledgeDate: string | Date,
+  releaseDate: string | Date,
+  mediator?: string | null,
+  forceTwoPhase: boolean = false
+): boolean {
+  const spansBoundary = new Date(pledgeDate) < APRIL_1_2025 && new Date(releaseDate) >= APRIL_1_2025
+  if (!spansBoundary) return false
+  if (forceTwoPhase) return true
+  return !!mediator && mediator.toLowerCase() === 'murali'
 }
 
 export function calculatePawnInterest(
@@ -86,7 +93,8 @@ export function calculatePawnInterest(
   rate: number,
   phase1Rate?: number,
   phase2Rate?: number,
-  mediator?: string | null
+  mediator?: string | null,
+  forceTwoPhase: boolean = false
 ): InterestResult {
   const pDate = new Date(pledgeDate)
   const rDate = new Date(releaseDate)
@@ -110,8 +118,8 @@ export function calculatePawnInterest(
   let totalInterest = 0
   let finalAmount = principal
 
-  const isMSeries = mediator && mediator.toLowerCase() === 'murali'
-  if (isMSeries && pDate < APRIL_1_2025 && rDate >= APRIL_1_2025) {
+  const useTwoPhase = isTwoPhase(pDate, rDate, mediator, forceTwoPhase)
+  if (useTwoPhase) {
     const r1 = phase1Rate ?? RATE_1
     const r2 = phase2Rate ?? RATE_1_15
 
