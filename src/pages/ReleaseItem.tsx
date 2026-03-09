@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
+import { requestBiometricAuth } from '../services/biometricAuth'
 import type { PawnItem, InterestResult } from '../types'
 
 export default function ReleaseItem() {
@@ -188,6 +189,8 @@ export default function ReleaseItem() {
 
   const handleRelease = async () => {
     if (!item || !calc) return
+    const verified = await requestBiometricAuth('Authenticate to release this pledge')
+    if (!verified) { toast.error('Authentication required to release'); return }
     setReleasing(true)
     try {
       let historyRate = Number(rateOption)

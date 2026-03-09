@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, CheckCircle, Clock, ChevronRight, LayoutGrid, FileText, Scale,
-  Bell, Gem, Package
+  Bell, Gem, Package, Settings
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import type { PawnItem } from '../types'
@@ -206,7 +206,7 @@ export default function Dashboard() {
           <button className={`nav-item ${activePath === '/' ? 'active' : ''}`} onClick={() => navigate('/')}>
             <LayoutGrid size={20} /><span>Dashboard</span>
           </button>
-          <button className={`nav-item ${activePath === '/add' ? 'active' : ''}`} onClick={() => navigate('/add')}>
+          <button className={`nav-item ${activePath === '/items' ? 'active' : ''}`} onClick={() => navigate('/items')}>
             <FileText size={20} /><span>Items</span>
           </button>
           <button className={`nav-item ${activePath === '/history' ? 'active' : ''}`} onClick={() => navigate('/history')}>
@@ -214,6 +214,9 @@ export default function Dashboard() {
           </button>
           <button className={`nav-item ${activePath === '/release' ? 'active' : ''}`} onClick={() => navigate('/release')}>
             <CheckCircle size={20} /><span>Release</span>
+          </button>
+          <button className={`nav-item ${activePath === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')}>
+            <Settings size={20} /><span>Settings</span>
           </button>
         </div>
       </nav>

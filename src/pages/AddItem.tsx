@@ -1,25 +1,33 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Camera, ImagePlus, X, Barcode, IndianRupee, Calendar, ChevronDown, Loader2,
-  SwitchCamera, Aperture, Users
+  SwitchCamera, Aperture, Users, Edit3, Trash2, CheckCircle
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
+import { requestBiometricAuth } from '../services/biometricAuth'
 
 const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
 type MediatorOption = typeof MEDIATORS[number]
 
 export default function AddItem() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const editId = searchParams.get('id')
   const fileRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(!!editId)
   const [serialLoading, setSerialLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const [savedItem, setSavedItem] = useState<{ id: string; serial_number: string; amount: number; pledge_date: string; interest_rate: number; mediator_name: string; image_url: string | null } | null>(null)
+  const [editMode, setEditMode] = useState(false)
 
   const [serial, setSerial] = useState('')
   const [amount, setAmount] = useState('')
@@ -34,6 +42,60 @@ export default function AddItem() {
 
   const [cameraOpen, setCameraOpen] = useState(false)
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
+
+  // ─── Load existing item for editing (when navigating from Items page) ───
+  useEffect(() => {
+    if (!editId) return
+    ;(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('pawn_items')
+          .select('*')
+          .eq('id', editId)
+          .single()
+        if (error || !data) { toast.error('Item not found'); navigate('/items'); return }
+
+        // Populate form fields
+        setSerial(data.serial_number)
+        setAmount(String(data.amount))
+        setPledgeDate(data.pledge_date)
+        if (data.image_url) setPreview(data.image_url)
+
+        // Set rate
+        const r = String(data.interest_rate)
+        if (['1', '1.15', '1.25'].includes(r)) {
+          setRateOption(r)
+        } else {
+          setRateOption('custom')
+          setCustomRate(r)
+        }
+
+        // Set mediator
+        if (data.mediator === 'Jagadesh' || data.mediator === 'Murali') {
+          setMediator(data.mediator as MediatorOption)
+        } else if (data.mediator === 'Others') {
+          setMediator('Others')
+          setOtherName(data.mediator_name ?? '')
+        }
+
+        setSavedItem({
+          id: data.id,
+          serial_number: data.serial_number,
+          amount: data.amount,
+          pledge_date: data.pledge_date,
+          interest_rate: data.interest_rate,
+          mediator_name: data.mediator_name ?? '',
+          image_url: data.image_url
+        })
+        setEditMode(true)
+      } catch {
+        toast.error('Failed to load item')
+        navigate('/items')
+      } finally {
+        setInitialLoading(false)
+      }
+    })()
+  }, [editId])
 
   // ─── Auto-generate serial number when mediator changes ───
   const generateSerial = useCallback(async (med: MediatorOption | '', customName: string) => {
@@ -223,7 +285,7 @@ export default function AddItem() {
         imageUrl = urlData.publicUrl
       }
 
-      const { error } = await supabase.from('pawn_items').insert([{
+      const { data: inserted, error } = await supabase.from('pawn_items').insert([{
         serial_number: serial.trim(),
         mediator: mediator,
         mediator_name: mediatorName,
@@ -232,7 +294,7 @@ export default function AddItem() {
         pledge_date: pledgeDate,
         image_url: imageUrl,
         status: 'active'
-      }])
+      }]).select().single()
 
       if (error) {
         if (error.code === '23505') { toast.error('Serial number already exists'); return }
@@ -240,7 +302,16 @@ export default function AddItem() {
       }
 
       toast.success('Item pledged successfully')
-      navigate('/')
+      setSavedItem({
+        id: inserted.id,
+        serial_number: serial.trim(),
+        amount: Number(amount),
+        pledge_date: pledgeDate,
+        interest_rate: rate,
+        mediator_name: mediatorName,
+        image_url: imageUrl
+      })
+      setEditMode(false)
     } catch (err: any) {
       toast.error(err.message ?? 'Failed to add item')
     } finally {
@@ -248,14 +319,82 @@ export default function AddItem() {
     }
   }
 
+  const handleEdit = async () => {
+    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
+    if (!verified) { toast.error('Authentication required to edit'); return }
+    setEditMode(true)
+  }
+
+  const handleUpdate = async () => {
+    if (!savedItem) return
+    if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
+
+    let rate = Number(rateOption)
+    if (rateOption === 'custom') {
+      rate = Number(customRate)
+      if (!rate || rate <= 0) { toast.error('Enter a valid custom rate'); return }
+    }
+
+    setLoading(true)
+    try {
+      let imageUrl = savedItem.image_url
+      if (imageFile) {
+        const ext = imageFile.name.split('.').pop()
+        const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+        const { error: upErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(path, imageFile, { contentType: imageFile.type || 'image/jpeg', upsert: true })
+        if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`)
+        const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path)
+        imageUrl = urlData.publicUrl
+      }
+
+      const { error } = await supabase.from('pawn_items')
+        .update({
+          amount: Number(amount),
+          interest_rate: rate,
+          pledge_date: pledgeDate,
+          image_url: imageUrl
+        })
+        .eq('id', savedItem.id)
+
+      if (error) throw error
+
+      toast.success('Item updated successfully')
+      setSavedItem({ ...savedItem, amount: Number(amount), interest_rate: rate, pledge_date: pledgeDate, image_url: imageUrl })
+      setEditMode(false)
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update item')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!savedItem) return
+    const verified = await requestBiometricAuth('Authenticate to delete this pledge')
+    if (!verified) { toast.error('Authentication required to delete'); return }
+    setDeleting(true)
+    try {
+      const { error } = await supabase.from('pawn_items').delete().eq('id', savedItem.id)
+      if (error) throw error
+      toast.success('Item deleted successfully')
+      navigate('/items')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to delete item')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <button className="topbar-back" onClick={() => navigate('/')}>
+          <button className="topbar-back" onClick={() => navigate(editId ? '/items' : '/')}>
             <ArrowLeft size={18} />
           </button>
-          <span className="topbar-title">Add New Pledge</span>
+          <span className="topbar-title">{savedItem && !editMode ? 'Pledge Added' : editMode ? 'Edit Pledge' : 'Add New Pledge'}</span>
         </div>
       </header>
 
@@ -263,6 +402,88 @@ export default function AddItem() {
       <div style={{ height: 3, background: 'var(--accent)' }} />
 
       <main className="page-shell" style={{ paddingTop: 24 }}>
+        {/* ─── Initial Loading (editing existing item) ─── */}
+        {initialLoading ? (
+          <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--text-muted)' }}>
+            <Loader2 size={28} className="spin" />
+            <div style={{ marginTop: 12, fontSize: '0.875rem' }}>Loading item…</div>
+          </div>
+        ) : (
+        <>
+        {/* ─── Success Screen ─── */}
+        {savedItem && !editMode ? (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            style={{ maxWidth: 560, margin: '0 auto' }}
+          >
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <CheckCircle size={56} color="var(--accent)" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                Pledge Saved!
+              </div>
+            </div>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              {savedItem.image_url && (
+                <div style={{ marginBottom: 16, borderRadius: 'var(--radius-md)', overflow: 'hidden', maxHeight: 200 }}>
+                  <img src={savedItem.image_url} alt="" style={{ width: '100%', objectFit: 'cover' }} />
+                </div>
+              )}
+              <div className="detail-row" style={{ padding: '8px 0' }}>
+                <span className="detail-key">Serial</span>
+                <span className="detail-val" style={{ fontWeight: 700 }}>#{savedItem.serial_number}</span>
+              </div>
+              <div className="detail-row" style={{ padding: '8px 0' }}>
+                <span className="detail-key">Mediator</span>
+                <span className="detail-val">{savedItem.mediator_name}</span>
+              </div>
+              <div className="detail-row" style={{ padding: '8px 0' }}>
+                <span className="detail-key">Amount</span>
+                <span className="detail-val" style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{savedItem.amount.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="detail-row" style={{ padding: '8px 0' }}>
+                <span className="detail-key">Rate</span>
+                <span className="detail-val">{savedItem.interest_rate}% / month</span>
+              </div>
+              <div className="detail-row" style={{ padding: '8px 0' }}>
+                <span className="detail-key">Pledge Date</span>
+                <span className="detail-val">{new Date(savedItem.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <motion.button
+                className="btn btn-full"
+                onClick={handleEdit}
+                whileTap={{ scale: 0.97 }}
+                style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.9375rem', fontWeight: 700, padding: '14px 20px', background: 'var(--accent)', color: 'white' }}
+              >
+                <Edit3 size={18} /> Edit
+              </motion.button>
+              <motion.button
+                className="btn btn-full"
+                onClick={handleDelete}
+                disabled={deleting}
+                whileTap={{ scale: 0.97 }}
+                style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.9375rem', fontWeight: 700, padding: '14px 20px', background: '#ef4444', color: 'white' }}
+              >
+                {deleting ? <Loader2 size={18} className="spin" /> : <Trash2 size={18} />}
+                {deleting ? 'Deleting…' : 'Delete'}
+              </motion.button>
+            </div>
+
+            <motion.button
+              className="btn btn-ghost btn-full"
+              onClick={() => navigate('/items')}
+              whileTap={{ scale: 0.97 }}
+              style={{ borderRadius: 'var(--radius-xl)', fontSize: '0.9375rem', fontWeight: 600, padding: '14px 20px', marginBottom: 40 }}
+            >
+              Back to Items
+            </motion.button>
+          </motion.div>
+        ) : (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -482,15 +703,18 @@ export default function AddItem() {
           {/* ─── Submit ─── */}
           <motion.button
             className="btn btn-primary btn-lg btn-full"
-            onClick={handleSubmit}
+            onClick={editMode ? handleUpdate : handleSubmit}
             disabled={loading}
             whileTap={{ scale: 0.97 }}
             style={{ marginBottom: 40, borderRadius: 'var(--radius-xl)', fontSize: '1rem', fontWeight: 700, padding: '18px 32px' }}
           >
             {loading ? <Loader2 size={20} className="spin" /> : null}
-            {loading ? 'Saving…' : 'Submit Pledge'}
+            {loading ? (editMode ? 'Updating…' : 'Saving…') : (editMode ? 'Update Pledge' : 'Submit Pledge')}
           </motion.button>
         </motion.div>
+        )}
+        </>
+        )}
       </main>
     </>
   )

@@ -2,8 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Dashboard from './pages/Dashboard'
 import AddItem from './pages/AddItem'
+import Items from './pages/Items'
 import ReleaseItem from './pages/ReleaseItem'
 import History from './pages/History'
+import Settings from './pages/Settings'
 import InstallBanner from './components/InstallBanner'
 import OfflineBanner from './components/OfflineBanner'
 import UpdatePrompt from './components/UpdatePrompt'
@@ -28,9 +30,11 @@ export default function App() {
       <OfflineBanner />
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/items" element={<Items />} />
         <Route path="/add" element={<AddItem />} />
         <Route path="/release" element={<ReleaseItem />} />
         <Route path="/history" element={<History />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <InstallBanner />
