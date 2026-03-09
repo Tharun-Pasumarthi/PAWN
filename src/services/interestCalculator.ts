@@ -94,7 +94,8 @@ export function calculatePawnInterest(
   phase1Rate?: number,
   phase2Rate?: number,
   mediator?: string | null,
-  forceTwoPhase: boolean = false
+  forceTwoPhase: boolean = false,
+  boundaryDate?: string | Date
 ): InterestResult {
   const pDate = new Date(pledgeDate)
   const rDate = new Date(releaseDate)
@@ -123,25 +124,29 @@ export function calculatePawnInterest(
     const r1 = phase1Rate ?? RATE_1
     const r2 = phase2Rate ?? RATE_1_15
 
-    // PHASE 1: pledge_date → Mar 31 2025
-    const mar31 = new Date('2025-03-31')
-    const p1Days = daysBetween(pDate, mar31)
-    const p1 = annualCompoundInterest(principal, r1, pDate, mar31)
+    // Determine boundary: custom or default Apr 1 2025
+    const boundary = boundaryDate ? new Date(boundaryDate) : APRIL_1_2025
+    const dayBeforeBoundary = new Date(boundary)
+    dayBeforeBoundary.setDate(dayBeforeBoundary.getDate() - 1)
+
+    // PHASE 1: pledge_date → day before boundary
+    const p1Days = daysBetween(pDate, dayBeforeBoundary)
+    const p1 = annualCompoundInterest(principal, r1, pDate, dayBeforeBoundary)
     const p1Interest = Math.floor(p1.interest)
     const p1Total = principal + p1Interest
 
     details.phases.push(
-      makePhase(1, pDate, mar31, p1Days, formatDuration(p1.duration), r1, principal, p1Interest, p1Total)
+      makePhase(1, pDate, dayBeforeBoundary, p1Days, formatDuration(p1.duration), r1, principal, p1Interest, p1Total)
     )
 
-    // PHASE 2: Apr 1 2025 → release_date (uses Phase 1 total as principal)
-    const p2Days = daysBetween(APRIL_1_2025, rDate)
-    const p2 = annualCompoundInterest(p1Total, r2, APRIL_1_2025, rDate)
+    // PHASE 2: boundary → release_date (uses Phase 1 total as principal)
+    const p2Days = daysBetween(boundary, rDate)
+    const p2 = annualCompoundInterest(p1Total, r2, boundary, rDate)
     const p2Interest = Math.floor(p2.interest)
     const p2Total = p1Total + p2Interest
 
     details.phases.push(
-      makePhase(2, APRIL_1_2025, rDate, p2Days, formatDuration(p2.duration), r2, p1Total, p2Interest, p2Total)
+      makePhase(2, boundary, rDate, p2Days, formatDuration(p2.duration), r2, p1Total, p2Interest, p2Total)
     )
 
     totalInterest = p1Interest + p2Interest
