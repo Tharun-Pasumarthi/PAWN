@@ -61,7 +61,7 @@ export default function ReleaseItem() {
     setItem(picked)
     setSerial(picked.serial_number)
     setCalc(null)
-    const isTwo = isTwoPhase(picked.pledge_date, releaseDate)
+    const isTwo = isTwoPhase(picked.pledge_date, releaseDate, picked.mediator_name)
     if (isTwo) {
       setP1Rate('1')
       setP2Rate('1.15')
@@ -87,7 +87,7 @@ export default function ReleaseItem() {
       if (error) throw error
       if (!data) { toast.error('Item not found or already released'); return }
       setItem(data as PawnItem)
-      const isTwo = isTwoPhase(data.pledge_date, releaseDate)
+      const isTwo = isTwoPhase(data.pledge_date, releaseDate, (data as PawnItem).mediator_name)
       if (isTwo) {
         setP1Rate('1')
         setP2Rate('1.15')
@@ -103,7 +103,7 @@ export default function ReleaseItem() {
     }
   }, [serial, releaseDate])
 
-  const twoPhase = item ? isTwoPhase(item.pledge_date, releaseDate) : false
+  const twoPhase = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name) : false
 
   const resolveRate = (opt: string, custom: string): number | undefined => {
     if (opt === 'custom') {
@@ -124,14 +124,14 @@ export default function ReleaseItem() {
     pc2: string = p2Custom
   ) => {
     if (!it) return
-    const isTwo = isTwoPhase(it.pledge_date, rDate)
+    const isTwo = isTwoPhase(it.pledge_date, rDate, it.mediator_name)
 
     if (isTwo) {
       const r1 = resolveRate(pr1, pc1)
       const r2 = resolveRate(pr2, pc2)
       if (!r1 || !r2) { setCalc(null); return }
       try {
-        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2))
+        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2, it.mediator_name))
       } catch (err: any) { toast.error(err.message); setCalc(null) }
     } else {
       let rate = Number(rOpt)
@@ -140,7 +140,7 @@ export default function ReleaseItem() {
         if (!rate || rate <= 0) { setCalc(null); return }
       }
       try {
-        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, rate))
+        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, rate, undefined, undefined, it.mediator_name))
       } catch (err: any) { toast.error(err.message); setCalc(null) }
     }
   }
@@ -489,8 +489,8 @@ export default function ReleaseItem() {
                                       <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.startDate} → {p.endDate}</span>
                                     </div>
                                     <div className="detail-row" style={{ padding: '4px 0' }}>
-                                      <span className="detail-key">Days</span>
-                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.days}d ({p.months} mo)</span>
+                                      <span className="detail-key">Duration</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.days}d ({p.months})</span>
                                     </div>
                                     <div className="detail-row" style={{ padding: '4px 0' }}>
                                       <span className="detail-key">Rate</span>

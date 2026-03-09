@@ -45,11 +45,11 @@ export default function AddItem() {
       let pattern: string
 
       if (med === 'Jagadesh') {
-        prefix = 'J-'
-        pattern = 'J-%'
+        prefix = 'J'
+        pattern = 'J%'
       } else if (med === 'Murali') {
-        prefix = 'M-'
-        pattern = 'M-%'
+        prefix = 'M'
+        pattern = 'M%'
       } else {
         // Others — use full name lowercase
         const name = customName.trim().toLowerCase()

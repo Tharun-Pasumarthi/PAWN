@@ -9,59 +9,73 @@ const daysBetween = (start: Date, end: Date): number =>
   Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
 
 /**
- * Count fractional months between two dates (for display only).
+ * Calendar duration between two dates as {years, months, days}.
  */
-function countMonths(start: Date, end: Date): number {
-  let months = 0
-  const current = new Date(start)
-  while (true) {
-    const next = new Date(current)
-    next.setMonth(next.getMonth() + 1)
-    if (next > end) break
-    months++
-    current.setTime(next.getTime())
+function calculateDuration(start: Date, end: Date): { years: number; months: number; days: number } {
+  let years = end.getFullYear() - start.getFullYear()
+  let months = end.getMonth() - start.getMonth()
+  let days = end.getDate() - start.getDate()
+
+  if (days < 0) {
+    months--
+    const prevMonthLastDay = new Date(end.getFullYear(), end.getMonth(), 0).getDate()
+    if (start.getDate() > prevMonthLastDay) {
+      days = end.getDate()
+    } else {
+      days = prevMonthLastDay - start.getDate() + end.getDate()
+    }
   }
-  const remainingMs = end.getTime() - current.getTime()
-  const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24))
-  if (remainingDays > 0) {
-    const dim = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate()
-    months += remainingDays / dim
+
+  if (months < 0) {
+    years--
+    months += 12
   }
-  return months
+
+  return { years, months, days }
+}
+
+function formatDuration(d: { years: number; months: number; days: number }): string {
+  const parts: string[] = []
+  if (d.years > 0) parts.push(`${d.years}y`)
+  if (d.months > 0) parts.push(`${d.months}mo`)
+  if (d.days > 0 || parts.length === 0) parts.push(`${d.days}d`)
+  return parts.join(' ')
 }
 
 /**
- * Monthly compound interest using 30-day month convention.
- * Full months compound, remaining days are pro-rated.
+ * Annual compound interest — Compound (12 M).
  *
- *   monthlyRate = rupees per 100 per month (e.g. 1 = 1%)
- *
- * Example: ₹20,000 at 1% for 15 days → 20,000 × 0.01 × (15/30) = ₹100
+ * 1. Compound for full calendar years: P × (1 + annualRate)^years
+ * 2. Remaining partial year: simple interest with 30/360 convention
+ * 3. Interest is floored (truncated) to match standard pawn calculators
  */
-function monthlyCompoundInterest(
+function annualCompoundInterest(
   principal: number,
   monthlyRate: number,
-  days: number
-): { finalAmount: number; interest: number } {
-  const rateDecimal = monthlyRate / 100
-  const fullMonths = Math.floor(days / 30)
-  const remainingDays = days % 30
+  startDate: Date,
+  endDate: Date
+): { finalAmount: number; interest: number; duration: { years: number; months: number; days: number } } {
+  const annualRate = monthlyRate * 12 / 100
+  const dur = calculateDuration(startDate, endDate)
 
-  // Compound for full months
-  let amount = principal * Math.pow(1 + rateDecimal, fullMonths)
+  // Compound for full years
+  let amount = principal * Math.pow(1 + annualRate, dur.years)
 
-  // Pro-rate remaining partial month
+  // Simple interest for remaining months + days (30/360 convention)
+  const remainingDays = dur.months * 30 + dur.days
   if (remainingDays > 0) {
-    amount = amount + amount * rateDecimal * (remainingDays / 30)
+    amount += amount * annualRate * remainingDays / 360
   }
 
-  return { finalAmount: amount, interest: amount - principal }
+  return { finalAmount: amount, interest: amount - principal, duration: dur }
 }
 
 /**
- * Check if a pledge spans the Apr 1 2025 boundary for a given release date.
+ * Check if a pledge spans the Apr 1 2025 boundary.
+ * Two-phase breakdown only applies to M-series (Murali) items.
  */
-export function isTwoPhase(pledgeDate: string | Date, releaseDate: string | Date): boolean {
+export function isTwoPhase(pledgeDate: string | Date, releaseDate: string | Date, mediator?: string | null): boolean {
+  if (mediator && mediator.toLowerCase() !== 'murali') return false
   return new Date(pledgeDate) < APRIL_1_2025 && new Date(releaseDate) >= APRIL_1_2025
 }
 
@@ -71,7 +85,8 @@ export function calculatePawnInterest(
   releaseDate: string | Date,
   rate: number,
   phase1Rate?: number,
-  phase2Rate?: number
+  phase2Rate?: number,
+  mediator?: string | null
 ): InterestResult {
   const pDate = new Date(pledgeDate)
   const rDate = new Date(releaseDate)
@@ -79,7 +94,8 @@ export function calculatePawnInterest(
   if (rDate < pDate) throw new Error('Release date cannot be before pledge date')
 
   const actualDays = daysBetween(pDate, rDate)
-  const effectiveDays = actualDays < MIN_DAYS ? MIN_DAYS : actualDays
+  const minDayApplied = actualDays < MIN_DAYS
+  const effectiveDays = minDayApplied ? MIN_DAYS : actualDays
 
   const details: InterestResult['details'] = {
     principal,
@@ -87,46 +103,62 @@ export function calculatePawnInterest(
     releaseDate: rDate.toISOString().split('T')[0],
     actualDays,
     effectiveDays,
-    minDayRuleApplied: actualDays < MIN_DAYS,
+    minDayRuleApplied: minDayApplied,
     phases: []
   }
 
   let totalInterest = 0
   let finalAmount = principal
 
-  if (pDate < APRIL_1_2025 && rDate >= APRIL_1_2025) {
+  const isMSeries = mediator && mediator.toLowerCase() === 'murali'
+  if (isMSeries && pDate < APRIL_1_2025 && rDate >= APRIL_1_2025) {
     const r1 = phase1Rate ?? RATE_1
     const r2 = phase2Rate ?? RATE_1_15
 
-    // PHASE 1: pledge_date -> Mar 31
+    // PHASE 1: pledge_date → Mar 31 2025
     const mar31 = new Date('2025-03-31')
     const p1Days = daysBetween(pDate, mar31)
-    const p1Months = countMonths(pDate, mar31)
-    const p1 = monthlyCompoundInterest(principal, r1, p1Days)
+    const p1 = annualCompoundInterest(principal, r1, pDate, mar31)
+    const p1Interest = Math.floor(p1.interest)
+    const p1Total = principal + p1Interest
 
     details.phases.push(
-      makePhase(1, pDate, mar31, p1Days, p1Months, r1, principal, p1.interest, p1.finalAmount)
+      makePhase(1, pDate, mar31, p1Days, formatDuration(p1.duration), r1, principal, p1Interest, p1Total)
     )
 
-    // PHASE 2: Apr 1 -> release_date
+    // PHASE 2: Apr 1 2025 → release_date (uses Phase 1 total as principal)
     const p2Days = daysBetween(APRIL_1_2025, rDate)
-    const p2Months = countMonths(APRIL_1_2025, rDate)
-    const p2 = monthlyCompoundInterest(p1.finalAmount, r2, p2Days)
+    const p2 = annualCompoundInterest(p1Total, r2, APRIL_1_2025, rDate)
+    const p2Interest = Math.floor(p2.interest)
+    const p2Total = p1Total + p2Interest
 
     details.phases.push(
-      makePhase(2, APRIL_1_2025, rDate, p2Days, p2Months, r2, p1.finalAmount, p2.interest, p2.finalAmount)
+      makePhase(2, APRIL_1_2025, rDate, p2Days, formatDuration(p2.duration), r2, p1Total, p2Interest, p2Total)
     )
 
-    totalInterest = Math.round(p1.interest + p2.interest)
+    totalInterest = p1Interest + p2Interest
     finalAmount = principal + totalInterest
   } else {
-    const months = countMonths(pDate, rDate)
-    const result = monthlyCompoundInterest(principal, rate, effectiveDays)
-    totalInterest = Math.round(result.interest)
+    // SINGLE PHASE
+    let interest: number
+    let dur: { years: number; months: number; days: number }
+
+    if (minDayApplied) {
+      // Min-day rule: simple interest for 15 days
+      const annualRate = rate * 12 / 100
+      interest = Math.floor(principal * annualRate * MIN_DAYS / 360)
+      dur = { years: 0, months: 0, days: MIN_DAYS }
+    } else {
+      const result = annualCompoundInterest(principal, rate, pDate, rDate)
+      interest = Math.floor(result.interest)
+      dur = result.duration
+    }
+
+    totalInterest = interest
     finalAmount = principal + totalInterest
 
     details.phases.push(
-      makePhase(1, pDate, rDate, effectiveDays, months, rate, principal, result.interest, result.finalAmount)
+      makePhase(1, pDate, rDate, effectiveDays, formatDuration(dur), rate, principal, interest, finalAmount)
     )
   }
 
@@ -134,7 +166,7 @@ export function calculatePawnInterest(
 }
 
 function makePhase(
-  phase: number, start: Date, end: Date, days: number, months: number,
+  phase: number, start: Date, end: Date, days: number, duration: string,
   rate: number, principal: number, interest: number, output: number
 ): PhaseDetail {
   return {
@@ -142,12 +174,12 @@ function makePhase(
     startDate: start.toISOString().split('T')[0],
     endDate: end.toISOString().split('T')[0],
     days,
-    months: months.toFixed(2),
+    months: duration,
     rate,
     yearlyPercentage: (rate * 12).toFixed(2) + '%',
     principal: principal.toFixed(2),
-    interest: Math.round(interest).toString(),
-    output: Math.round(output).toString()
+    interest: interest.toString(),
+    output: output.toString()
   }
 }
 

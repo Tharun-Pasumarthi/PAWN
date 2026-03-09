@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Plus, CheckCircle, Clock, ChevronRight, LayoutGrid, FileText, Settings, Scale,
+  Plus, CheckCircle, Clock, ChevronRight, LayoutGrid, FileText, Scale,
   Bell, Gem, Package
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
@@ -213,7 +213,7 @@ export default function Dashboard() {
             <Clock size={20} /><span>History</span>
           </button>
           <button className={`nav-item ${activePath === '/release' ? 'active' : ''}`} onClick={() => navigate('/release')}>
-            <Settings size={20} /><span>Settings</span>
+            <CheckCircle size={20} /><span>Release</span>
           </button>
         </div>
       </nav>
