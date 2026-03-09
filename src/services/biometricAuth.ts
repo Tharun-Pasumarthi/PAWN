@@ -148,13 +148,14 @@ export async function authenticateUser(): Promise<string | null> {
   const users = getUsers()
 
   if (users.length === 0) {
-    // No users registered — allow with confirmation
-    return window.confirm('No biometric users registered. Proceed without authentication?') ? '__unregistered__' : null
+    // No users registered — strictly block
+    return null
   }
 
   const available = await isBiometricAvailable()
   if (!available) {
-    return window.confirm('Biometric not available on this device. Proceed anyway?') ? '__fallback__' : null
+    // Device doesn't support biometric — strictly block
+    return null
   }
 
   try {
@@ -190,17 +191,67 @@ export async function authenticateUser(): Promise<string | null> {
 /**
  * Convenience wrapper: prompt biometric and return success boolean.
  * Used by edit/delete/release actions.
+ * STRICTLY BLOCKS if no users registered or biometric unavailable.
  */
-export async function requestBiometricAuth(reason: string = 'Verify your identity'): Promise<boolean> {
+export async function requestBiometricAuth(_reason: string = 'Verify your identity'): Promise<boolean> {
   const users = getUsers()
 
   if (users.length === 0) {
-    // No users registered — prompt to register first
-    return window.confirm(
-      `${reason}\n\nNo biometric users registered yet.\nGo to Settings → Register a user to enable fingerprint/face protection.\n\nProceed without authentication?`
-    )
+    // No registered users — block action entirely
+    return false
   }
 
   const result = await authenticateUser()
   return result !== null
+}
+
+// ─── TOTP Authenticator App protection for Settings ───
+
+import * as OTPAuth from 'otpauth'
+
+const TOTP_SECRET_KEY = 'pawnvault_totp_secret'
+
+/** Check if TOTP (authenticator app) has been set up */
+export function isTotpSetUp(): boolean {
+  return !!localStorage.getItem(TOTP_SECRET_KEY)
+}
+
+/** Generate a new TOTP secret and return the setup data (secret + otpauth URI) */
+export function generateTotpSecret(): { secret: string; uri: string } {
+  const totp = new OTPAuth.TOTP({
+    issuer: 'PawnVault',
+    label: 'Shop Owner',
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    secret: new OTPAuth.Secret({ size: 20 })
+  })
+  return {
+    secret: totp.secret.base32,
+    uri: totp.toString()
+  }
+}
+
+/** Save the TOTP secret after successful verification */
+export function saveTotpSecret(base32Secret: string): void {
+  localStorage.setItem(TOTP_SECRET_KEY, base32Secret)
+}
+
+/** Verify a 6-digit code from the authenticator app */
+export function verifyTotpCode(code: string): boolean {
+  const stored = localStorage.getItem(TOTP_SECRET_KEY)
+  if (!stored) return false
+
+  const totp = new OTPAuth.TOTP({
+    issuer: 'PawnVault',
+    label: 'Shop Owner',
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(stored)
+  })
+
+  // Allow 1 period drift (±30 seconds) for clock skew
+  const delta = totp.validate({ token: code, window: 1 })
+  return delta !== null
 }

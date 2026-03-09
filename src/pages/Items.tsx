@@ -8,7 +8,7 @@ import {
   LayoutGrid, FileText, Clock, CheckCircle, Settings
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
-import { requestBiometricAuth } from '../services/biometricAuth'
+import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
 import type { PawnItem } from '../types'
 
 type FilterStatus = 'all' | 'active' | 'released'
@@ -63,13 +63,19 @@ export default function Items() {
 
   const handleEdit = async (item: PawnItem) => {
     const verified = await requestBiometricAuth('Authenticate to edit this pledge')
-    if (!verified) { toast.error('Authentication required to edit'); return }
+    if (!verified) {
+      toast.error(hasRegisteredUsers() ? 'Biometric verification failed' : 'Register a biometric user in Settings first')
+      return
+    }
     navigate(`/add?id=${item.id}`)
   }
 
   const handleDelete = async (item: PawnItem) => {
     const verified = await requestBiometricAuth('Authenticate to delete this pledge')
-    if (!verified) { toast.error('Authentication required to delete'); return }
+    if (!verified) {
+      toast.error(hasRegisteredUsers() ? 'Biometric verification failed' : 'Register a biometric user in Settings first')
+      return
+    }
 
     if (!window.confirm(`Delete pledge #${item.serial_number}? This cannot be undone.`)) return
 
