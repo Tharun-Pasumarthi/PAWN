@@ -104,22 +104,47 @@ CREATE POLICY "shop_history_delete" ON pawn_history FOR DELETE USING (user_id = 
 
 
 -- ══════════════════════════════════════════════════════════════
--- STEP 6 — Create shops view (easy way to manage all shops)
+-- STEP 6 — Secure RPC function for shop data (replaces insecure view)
+-- Only the super user can call this function.
 -- ══════════════════════════════════════════════════════════════
 
-CREATE OR REPLACE VIEW public.shops AS
-SELECT
-  id                                    AS user_id,
-  raw_user_meta_data->>'phone'          AS phone,
-  raw_user_meta_data->>'shop_name'      AS shop_name,
-  email,
-  created_at,
-  last_sign_in_at
-FROM auth.users
-ORDER BY created_at;
+-- Drop the insecure view that exposed auth.users
+DROP VIEW IF EXISTS public.shops;
 
--- To view all shops anytime, run:
--- SELECT * FROM public.shops;
+-- Create a secure function instead
+CREATE OR REPLACE FUNCTION public.get_shops()
+RETURNS TABLE (
+  user_id uuid,
+  phone text,
+  shop_name text,
+  email varchar,
+  created_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Only allow super user to call this
+  IF auth.uid() IS NULL OR auth.uid() != '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid THEN
+    RAISE EXCEPTION 'Access denied';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    u.id                                    AS user_id,
+    (u.raw_user_meta_data->>'phone')::text  AS phone,
+    (u.raw_user_meta_data->>'shop_name')::text AS shop_name,
+    u.email,
+    u.created_at
+  FROM auth.users u
+  ORDER BY u.created_at;
+END;
+$$;
+
+-- Revoke from anon, grant only to authenticated
+REVOKE ALL ON FUNCTION public.get_shops() FROM anon;
+GRANT EXECUTE ON FUNCTION public.get_shops() TO authenticated;
 
 
 -- ══════════════════════════════════════════════════════════════
@@ -276,3 +301,20 @@ CREATE POLICY "shop_history_select" ON pawn_history
     user_id = auth.uid()
     OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
   );
+
+
+-- ══════════════════════════════════════════════════════════════
+-- PART 8 — Fix mutable search_path on update_updated_at_column
+-- ══════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;

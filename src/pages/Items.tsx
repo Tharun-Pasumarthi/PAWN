@@ -48,12 +48,11 @@ export default function Items() {
   useEffect(() => {
     if (!shopFilter) { setShopName(''); return }
     ;(async () => {
-      const { data } = await supabase
-        .from('shops')
-        .select('shop_name, phone')
-        .eq('user_id', shopFilter)
-        .single()
-      if (data) setShopName(data.shop_name || data.phone || shopFilter.slice(0, 8))
+      const { data } = await supabase.rpc('get_shops')
+      if (data) {
+        const shop = (data as any[]).find((s: any) => s.user_id === shopFilter)
+        if (shop) setShopName(shop.shop_name || shop.phone || shopFilter.slice(0, 8))
+      }
     })()
   }, [shopFilter])
 

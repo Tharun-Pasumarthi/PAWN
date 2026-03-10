@@ -60,10 +60,8 @@ export default function Dashboard() {
             }
             setShopStats(Array.from(byShop.entries()).map(([userId, s]) => ({ userId, ...s })))
 
-            // Fetch shop names from the shops view
-            const { data: shops } = await supabase
-              .from('shops')
-              .select('user_id, shop_name, phone')
+            // Fetch shop names via secure RPC
+            const { data: shops } = await supabase.rpc('get_shops')
             if (shops) {
               const names: Record<string, string> = {}
               for (const s of shops) names[s.user_id] = s.shop_name || s.phone || s.user_id.slice(0, 8)
@@ -81,8 +79,23 @@ export default function Dashboard() {
       {/* ─── Top bar ─── */}
       <header className="topbar">
         <div className="topbar-inner">
-          <Scale size={24} color="var(--accent)" />
-          <span className="topbar-title">{shopName}{isSuperUser ? ' · All Shops' : ''}</span>
+          <Scale size={24} color="var(--accent)" style={{ flexShrink: 0 }} />
+          <span className="topbar-title">
+            {shopName}
+            {isSuperUser && (
+              <button
+                onClick={() => navigate('/shops')}
+                style={{
+                  fontSize: '0.7rem', fontWeight: 700, color: '#fff',
+                  background: 'var(--accent)', border: 'none', borderRadius: 20,
+                  padding: '3px 10px', marginLeft: 8, cursor: 'pointer',
+                  verticalAlign: 'middle', letterSpacing: '0.02em'
+                }}
+              >
+                All Shops
+              </button>
+            )}
+          </span>
           <div className="topbar-actions">
             <button className="topbar-back" style={{ border: 'none' }}>
               <Bell size={18} />
@@ -154,21 +167,30 @@ export default function Dashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {shopStats.map(shop => (
-                <div
+                <motion.button
                   key={shop.userId}
-                  className="card"
-                  style={{ padding: '14px 18px', cursor: 'pointer' }}
+                  className="action-card"
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => navigate(`/items?shop=${shop.userId}`)}
+                  style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer',
+                    padding: '14px 18px', border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)',
+                    display: 'block'
+                  }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
-                      {shopNames[shop.userId] || shop.userId.slice(0, 8)}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Store size={16} color="var(--accent)" />
+                      <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+                        {shopNames[shop.userId] || shop.userId.slice(0, 8)}
+                      </span>
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
                         {shop.active + shop.released} total
                       </span>
-                      <ChevronRight size={16} color="var(--text-muted)" />
+                      <ChevronRight size={16} color="var(--accent)" />
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
@@ -187,7 +209,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </motion.button>
               ))}
             </div>
           </motion.section>
