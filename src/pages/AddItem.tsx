@@ -32,6 +32,8 @@ export default function AddItem() {
   const [editMode, setEditMode] = useState(false)
 
   const [serial, setSerial] = useState('')
+  const [serialPrefix, setSerialPrefix] = useState('')
+  const [serialStatus, setSerialStatus] = useState<'ok' | 'exists-active' | 'exists-released' | ''>('')
   const [amount, setAmount] = useState('')
   const [rateOption, setRateOption] = useState<string>('1')
   const [customRate, setCustomRate] = useState('')
@@ -161,6 +163,8 @@ export default function AddItem() {
       } else {
         setSerial(`${prefix}${nextNum}`)
       }
+      setSerialPrefix(prefix)
+      setSerialStatus('')
     } catch {
       toast.error('Failed to generate serial number')
     } finally {
@@ -170,22 +174,60 @@ export default function AddItem() {
 
   const handleMediatorChange = (value: MediatorOption | '') => {
     setMediator(value)
+    setSerialStatus('')
     if (value !== 'Others') {
       setOtherName('')
       generateSerial(value, '')
     } else {
       setSerial('')
+      setSerialPrefix('')
     }
   }
 
   const handleOtherNameChange = (name: string) => {
     setOtherName(name)
+    setSerialStatus('')
     if (name.trim()) {
       generateSerial('Others', name)
     } else {
       setSerial('')
+      setSerialPrefix('')
     }
   }
+
+  // ─── Manual serial number editing (prefix locked, number editable) ───
+  const handleSerialChange = (value: string) => {
+    if (!serialPrefix) return
+    // Ensure prefix is always present
+    if (!value.startsWith(serialPrefix)) return
+    setSerial(value)
+    setSerialStatus('')
+  }
+
+  // ─── Check for duplicate serial number in DB ───
+  useEffect(() => {
+    if (!serial || !serialPrefix || serialLoading) { setSerialStatus(''); return }
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await supabase
+          .from('pawn_items')
+          .select('id, status')
+          .eq('serial_number', serial.trim())
+        if (data && data.length > 0) {
+          // Skip if editing the same item
+          if (editId && data.length === 1 && data[0].id === editId) {
+            setSerialStatus('ok')
+            return
+          }
+          const hasActive = data.some(d => d.status === 'active')
+          setSerialStatus(hasActive ? 'exists-active' : 'exists-released')
+        } else {
+          setSerialStatus('ok')
+        }
+      } catch { setSerialStatus('') }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [serial, serialPrefix, serialLoading, editId])
 
   // ─── Serial generation for non-super-users (Gold/Silver/Other) ───
   const generateSerialByType = useCallback(async (type: 'Gold' | 'Silver' | 'Other') => {
@@ -209,6 +251,8 @@ export default function AddItem() {
       }
 
       setSerial(`${prefix}${maxNum + 1}`)
+      setSerialPrefix(prefix)
+      setSerialStatus('')
     } catch {
       toast.error('Failed to generate serial number')
     } finally {
@@ -218,6 +262,7 @@ export default function AddItem() {
 
   const handleItemTypeChange = (type: 'Gold' | 'Silver' | 'Other') => {
     setItemType(type)
+    setSerialStatus('')
     generateSerialByType(type)
   }
 
@@ -310,6 +355,7 @@ export default function AddItem() {
       if (!imageFile && !preview) { toast.error('Photo is required'); return }
     }
     if (!serial.trim()) { toast.error('Serial number not generated'); return }
+    if (serialStatus === 'exists-active') { toast.error('Serial number already in use (active pledge)'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
 
     let rate = Number(rateOption)
@@ -724,7 +770,7 @@ export default function AddItem() {
           </>
           )}
 
-          {/* ─── Serial Number (auto-generated) ─── */}
+          {/* ─── Serial Number (prefix locked, number editable) ─── */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'block' }}>
               Serial Number
@@ -735,18 +781,35 @@ export default function AddItem() {
                 className="field-input"
                 style={{
                   width: '100%', paddingLeft: 42, fontSize: '1rem', fontWeight: 700,
-                  background: serial ? 'var(--accent-light)' : 'var(--bg-input)',
-                  color: serial ? 'var(--accent)' : 'var(--text-muted)',
-                  letterSpacing: '0.02em'
+                  background: serialStatus === 'exists-active' ? '#fef2f2' : serialStatus === 'exists-released' ? '#fffbeb' : serial ? 'var(--accent-light)' : 'var(--bg-input)',
+                  color: serialStatus === 'exists-active' ? '#dc2626' : serialStatus === 'exists-released' ? '#d97706' : serial ? 'var(--accent)' : 'var(--text-muted)',
+                  letterSpacing: '0.02em',
+                  borderColor: serialStatus === 'exists-active' ? '#dc2626' : serialStatus === 'exists-released' ? '#d97706' : undefined
                 }}
                 value={serialLoading ? 'Generating…' : serial}
-                readOnly
+                onChange={e => handleSerialChange(e.target.value)}
+                readOnly={!serialPrefix || serialLoading}
                 placeholder={isSuperUser ? (!mediator ? 'Select mediator first' : 'Auto-generated') : (!itemType ? 'Select item type first' : 'Auto-generated')}
               />
               {serialLoading && (
                 <Loader2 size={16} className="spin" style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--accent)' }} />
               )}
             </div>
+            {serialStatus === 'exists-active' && (
+              <div style={{ marginTop: 6, fontSize: '0.8125rem', fontWeight: 600, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 4 }}>
+                ⚠ This serial number already exists (active pledge)
+              </div>
+            )}
+            {serialStatus === 'exists-released' && (
+              <div style={{ marginTop: 6, fontSize: '0.8125rem', fontWeight: 600, color: '#d97706', display: 'flex', alignItems: 'center', gap: 4 }}>
+                ⚠ This serial number exists (released entry)
+              </div>
+            )}
+            {serialPrefix && !serialLoading && (
+              <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Prefix "{serialPrefix}" is locked — change the number after it
+              </div>
+            )}
           </div>
 
           {/* ─── Amount & Pledge Date ─── */}
