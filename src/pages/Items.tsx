@@ -232,7 +232,7 @@ export default function Items() {
                           </span>
                         </div>
                         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                          {item.customer_name || item.mediator_name || '—'} · {new Date(item.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {item.customer_name || item.mediator_name || '—'} · {(() => { const dt = new Date(item.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}
                         </div>
                       </div>
 
@@ -299,7 +299,7 @@ export default function Items() {
                               </div>
                               <div className="detail-row" style={{ padding: '8px 0' }}>
                                 <span className="detail-key">Pledge Date</span>
-                                <span className="detail-val">{new Date(item.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                <span className="detail-val">{(() => { const dt = new Date(item.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}</span>
                               </div>
                               <div className="detail-row" style={{ padding: '8px 0' }}>
                                 <span className="detail-key">Status</span>

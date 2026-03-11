@@ -192,11 +192,11 @@ export default function ReleaseItem() {
   const handleRelease = async () => {
     if (!item || !calc) return
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const selected = new Date(releaseDate)
-    selected.setHours(0, 0, 0, 0)
-    const diffDays = Math.round((selected.getTime() - today.getTime()) / 86400000)
+    const now = new Date()
+    const todayStr2 = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+    const todayMs = new Date(todayStr2).getTime()
+    const selectedMs = new Date(releaseDate).getTime()
+    const diffDays = Math.round((selectedMs - todayMs) / 86400000)
     if (diffDays > 0) {
       if (!window.confirm(`Release date is ${diffDays} day(s) in the future. Continue?`)) return
     } else if (diffDays < -30) {
@@ -655,7 +655,8 @@ const RATES = [
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  const dt = new Date(d)
+  return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}`
 }
 function daysBetweenStr(a: string, b: string): number {
   return Math.ceil(Math.abs(new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24))

@@ -402,7 +402,7 @@ export default function Settings() {
                             {u.name}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                            Registered {new Date(u.registeredAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            Registered {(() => { const dt = new Date(u.registeredAt); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}
                           </div>
                         </div>
                         <button

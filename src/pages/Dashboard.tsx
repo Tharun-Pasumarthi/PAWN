@@ -298,7 +298,7 @@ export default function Dashboard() {
                         <div className="activity-amount">₹{Number(item.amount).toLocaleString('en-IN')}</div>
                       )}
                       <div className="activity-time">
-                        {item.pledge_date ? new Date(item.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+                        {item.pledge_date ? (() => { const dt = new Date(item.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })() : ''}
                       </div>
                     </div>
                   </div>

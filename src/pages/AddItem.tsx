@@ -575,7 +575,7 @@ export default function AddItem() {
               </div>
               <div className="detail-row" style={{ padding: '8px 0' }}>
                 <span className="detail-key">Pledge Date</span>
-                <span className="detail-val">{new Date(savedItem.pledge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                <span className="detail-val">{(() => { const dt = new Date(savedItem.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}</span>
               </div>
             </div>
 

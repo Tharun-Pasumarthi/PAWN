@@ -262,7 +262,8 @@ function fmt(n: number) {
   return Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function shortDate(d: string) {
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
+  const dt = new Date(d)
+  return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}`
 }
 function daysBetween(a: string, b: string) {
   return Math.ceil(Math.abs(new Date(b).getTime() - new Date(a).getTime()) / 86400000)
