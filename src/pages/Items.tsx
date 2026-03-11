@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronUp
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
+import ImageLightbox from '../components/ImageLightbox'
 import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
 import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem } from '../types'
@@ -26,6 +27,7 @@ export default function Items() {
   const [filter, setFilter] = useState<FilterStatus>('active')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   const fetchItems = async () => {
     try {
@@ -211,7 +213,7 @@ export default function Items() {
                         background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center'
                       }}>
                         {item.image_url ? (
-                          <img src={item.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={item.image_url} alt="" onClick={e => { e.stopPropagation(); setLightboxSrc(item.image_url) }} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
                         ) : (
                           item.status === 'released'
                             ? <Gem size={20} color="var(--success)" />
@@ -258,7 +260,7 @@ export default function Items() {
                           <div style={{ padding: '0 18px 16px', borderTop: '1px solid var(--border-subtle)' }}>
                             {/* Item image */}
                             {item.image_url && (
-                              <div style={{ marginTop: 14, marginBottom: 14, borderRadius: 'var(--radius-md)', overflow: 'hidden', maxHeight: 220 }}>
+                              <div onClick={() => setLightboxSrc(item.image_url)} style={{ marginTop: 14, marginBottom: 14, borderRadius: 'var(--radius-md)', overflow: 'hidden', maxHeight: 220, cursor: 'zoom-in' }}>
                                 <img src={item.image_url} alt="" style={{ width: '100%', objectFit: 'cover' }} />
                               </div>
                             )}
@@ -341,6 +343,8 @@ export default function Items() {
           </div>
         )}
       </main>
+
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </>
   )
 }
