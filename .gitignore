@@ -28,3 +28,17 @@ dist-ssr
 .env.local
 .env.production
 .vercel
+
+# Android build outputs
+android/app/build/
+android/build/
+android/.gradle/
+android/capacitor-cordova-android-plugins/build/
+android/app/release/
+android/app/src/main/assets/public/
+android/local.properties
+*.apk
+*.aab
+
+# Added by ggshield
+.cache_ggshield
