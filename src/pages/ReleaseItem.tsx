@@ -8,6 +8,7 @@ import {
 import { supabase } from '../services/supabaseClient'
 import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
 import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
+import ImageLightbox from '../components/ImageLightbox'
 import type { PawnItem, InterestResult } from '../types'
 
 export default function ReleaseItem() {
@@ -33,6 +34,7 @@ export default function ReleaseItem() {
   const [releaseDate, setReleaseDate] = useState(todayStr())
   const [calc, setCalc] = useState<InterestResult | null>(null)
   const [showPhases, setShowPhases] = useState(false)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   // Fetch all active items on mount
   useEffect(() => {
@@ -331,7 +333,7 @@ export default function ReleaseItem() {
                           overflow: 'hidden', flexShrink: 0,
                           border: '1px solid var(--border-subtle)'
                         }}>
-                          <img src={itm.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={itm.image_url} alt="" onClick={e => { e.stopPropagation(); setLightboxSrc(itm.image_url) }} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
                         </div>
                       ) : (
                         <div style={{
@@ -403,7 +405,7 @@ export default function ReleaseItem() {
                     </div>
                     {item.image_url && (
                       <div style={{ width: 80, height: 80, borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-subtle)' }}>
-                        <img src={item.image_url} alt="item" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={item.image_url} alt="item" onClick={() => setLightboxSrc(item.image_url)} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
                       </div>
                     )}
                   </div>
@@ -632,6 +634,8 @@ export default function ReleaseItem() {
           </AnimatePresence>
         </div>
       </main>
+
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </>
   )
 }

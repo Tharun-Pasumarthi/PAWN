@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { exportToCSV } from '../services/csvExport'
+import ImageLightbox from '../components/ImageLightbox'
 import type { PawnHistory } from '../types'
 
 type Tab = 'all' | 'recent' | 'high'
@@ -19,6 +20,7 @@ export default function History() {
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<Tab>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -183,7 +185,7 @@ export default function History() {
                   >
                     <div className="history-card-header">
                       {row.image_url ? (
-                        <img src={row.image_url} alt="" className="history-thumb" />
+                        <img src={row.image_url} alt="" className="history-thumb" onClick={e => { e.stopPropagation(); setLightboxSrc(row.image_url) }} style={{ cursor: 'zoom-in' }} />
                       ) : (
                         <div className="history-thumb" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)' }}>
                           <ImageIcon size={20} color="var(--text-muted)" />
@@ -227,15 +229,12 @@ export default function History() {
                             <DetailRow icon={<Clock size={14} />} label="Duration" value={`${days} days`} />
                             {row.image_url && (
                               <div style={{ gridColumn: '1 / -1' }}>
-                                <a
-                                  href={row.image_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={e => e.stopPropagation()}
-                                  style={{ color: 'var(--accent)', fontSize: '0.8125rem', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                                <button
+                                  onClick={e => { e.stopPropagation(); setLightboxSrc(row.image_url) }}
+                                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', fontSize: '0.8125rem', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
                                 >
                                   <ImageIcon size={14} /> View Full Image
-                                </a>
+                                </button>
                               </div>
                             )}
                           </div>
@@ -249,6 +248,8 @@ export default function History() {
           </div>
         )}
       </main>
+
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </>
   )
 }
