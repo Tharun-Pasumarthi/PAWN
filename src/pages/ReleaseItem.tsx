@@ -191,6 +191,16 @@ export default function ReleaseItem() {
 
   const handleRelease = async () => {
     if (!item || !calc) return
+
+    const today = new Date(); today.setHours(0,0,0,0)
+    const rDate = new Date(releaseDate); rDate.setHours(0,0,0,0)
+    if (rDate > today) {
+      if (!window.confirm(`Release date ${releaseDate} is in the future. Are you sure you want to continue?`)) return
+    } else if (rDate < new Date(item.pledge_date)) {
+      toast.error('Release date cannot be before the pledge date')
+      return
+    }
+
     setReleasing(true)
     try {
       let historyRate = Number(rateOption)

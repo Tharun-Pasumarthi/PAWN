@@ -422,11 +422,6 @@ export default function AddItem() {
   }
 
   const handleEdit = async () => {
-    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
-    if (!verified) {
-      toast.error(hasRegisteredUsers() ? 'Biometric verification failed' : 'Register a biometric user in Settings first')
-      return
-    }
     setEditMode(true)
   }
 
