@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import ImageLightbox from '../components/ImageLightbox'
+import { requestBiometricAuth } from '../services/biometricAuth'
 import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem } from '../types'
 
@@ -84,10 +85,21 @@ export default function Items() {
   }), [shopItems])
 
   const handleEdit = async (item: PawnItem) => {
+    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
+    if (!verified) {
+      toast.error('Biometric verification failed')
+      return
+    }
     navigate(`/add?id=${item.id}`)
   }
 
   const handleDelete = async (item: PawnItem) => {
+    const verified = await requestBiometricAuth('Authenticate to delete this pledge')
+    if (!verified) {
+      toast.error('Biometric verification failed')
+      return
+    }
+
     if (!window.confirm(`Delete pledge #${item.serial_number}? This cannot be undone.`)) return
 
     setDeletingId(item.id)

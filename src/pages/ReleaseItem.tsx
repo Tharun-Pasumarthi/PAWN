@@ -192,13 +192,15 @@ export default function ReleaseItem() {
   const handleRelease = async () => {
     if (!item || !calc) return
 
-    const today = new Date(); today.setHours(0,0,0,0)
-    const rDate = new Date(releaseDate); rDate.setHours(0,0,0,0)
-    if (rDate > today) {
-      if (!window.confirm(`Release date ${releaseDate} is in the future. Are you sure you want to continue?`)) return
-    } else if (rDate < new Date(item.pledge_date)) {
-      toast.error('Release date cannot be before the pledge date')
-      return
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const selected = new Date(releaseDate)
+    selected.setHours(0, 0, 0, 0)
+    const diffDays = Math.round((selected.getTime() - today.getTime()) / 86400000)
+    if (diffDays > 0) {
+      if (!window.confirm(`Release date is ${diffDays} day(s) in the future. Continue?`)) return
+    } else if (diffDays < -30) {
+      if (!window.confirm(`Release date is ${Math.abs(diffDays)} days in the past. Continue?`)) return
     }
 
     setReleasing(true)

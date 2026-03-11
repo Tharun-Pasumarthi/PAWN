@@ -7,7 +7,7 @@ import {
   SwitchCamera, Aperture, Users, Edit3, Trash2, CheckCircle, Gem
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
-import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
+import { requestBiometricAuth } from '../services/biometricAuth'
 import { useAuth } from '../contexts/AuthContext'
 
 const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
@@ -422,6 +422,11 @@ export default function AddItem() {
   }
 
   const handleEdit = async () => {
+    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
+    if (!verified) {
+      toast.error('Biometric verification failed')
+      return
+    }
     setEditMode(true)
   }
 
@@ -479,7 +484,7 @@ export default function AddItem() {
     if (!savedItem) return
     const verified = await requestBiometricAuth('Authenticate to delete this pledge')
     if (!verified) {
-      toast.error(hasRegisteredUsers() ? 'Biometric verification failed' : 'Register a biometric user in Settings first')
+      toast.error('Biometric verification failed')
       return
     }
     setDeleting(true)

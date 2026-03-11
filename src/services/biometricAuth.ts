@@ -157,14 +157,8 @@ export function removeUser(name: string): boolean {
 export async function authenticateUser(): Promise<string | null> {
   const users = getUsers()
 
-  if (users.length === 0) {
-    // No users registered — strictly block
-    return null
-  }
-
   const available = await isBiometricAvailable()
   if (!available) {
-    // Device doesn't support biometric — strictly block
     return null
   }
 
@@ -172,6 +166,9 @@ export async function authenticateUser(): Promise<string | null> {
     const challenge = new Uint8Array(32)
     crypto.getRandomValues(challenge)
 
+    // If we have stored credential IDs (registered via Settings), use them.
+    // Otherwise send an empty list → device uses discoverable/resident credentials
+    // (MS Authenticator, fingerprint, Face ID registered on the device).
     const allowCredentials: PublicKeyCredentialDescriptor[] = users.map(u => ({
       id: fromBase64(u.credentialId).buffer as ArrayBuffer,
       type: 'public-key' as const
@@ -183,16 +180,20 @@ export async function authenticateUser(): Promise<string | null> {
         timeout: 60000,
         userVerification: 'required',
         rpId: window.location.hostname,
-        allowCredentials
+        ...(allowCredentials.length > 0 ? { allowCredentials } : {})
       }
     }) as PublicKeyCredential | null
 
     if (!assertion) return null
 
-    // Match the returned credential ID to a registered user
-    const returnedId = toBase64(assertion.rawId)
-    const matched = users.find(u => u.credentialId === returnedId)
-    return matched ? matched.name : null
+    // If we have registered users, try to match the returned credential.
+    // If no registered users but auth succeeded, still accept it (discoverable credential).
+    if (users.length > 0) {
+      const returnedId = toBase64(assertion.rawId)
+      const matched = users.find(u => u.credentialId === returnedId)
+      return matched ? matched.name : 'authenticated'
+    }
+    return 'authenticated'
   } catch {
     return null
   }
@@ -200,17 +201,13 @@ export async function authenticateUser(): Promise<string | null> {
 
 /**
  * Convenience wrapper: prompt biometric and return success boolean.
- * Used by edit/delete/release actions.
- * STRICTLY BLOCKS if no users registered or biometric unavailable.
+ * Blocks only if biometric is not available on the device.
  */
 export async function requestBiometricAuth(_reason: string = 'Verify your identity'): Promise<boolean> {
-  const users = getUsers()
-
-  if (users.length === 0) {
-    // No registered users — block action entirely
+  const available = await isBiometricAvailable()
+  if (!available) {
     return false
   }
-
   const result = await authenticateUser()
   return result !== null
 }
