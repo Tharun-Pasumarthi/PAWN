@@ -10,6 +10,7 @@ import { supabase } from '../services/supabaseClient'
 import ImageLightbox from '../components/ImageLightbox'
 import { requestBiometricAuth, hasRegisteredUsers } from '../services/biometricAuth'
 import { useAuth } from '../contexts/AuthContext'
+import ImageLightbox from '../components/ImageLightbox'
 import type { PawnItem } from '../types'
 
 type FilterStatus = 'all' | 'active' | 'released'

@@ -26,7 +26,7 @@ export default function ImageLightbox({ src, onClose }: Props) {
           onClick={onClose}
           style={{
             position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.88)',
+            background: 'rgba(0,0,0,0.9)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
             backdropFilter: 'blur(4px)',
@@ -39,12 +39,12 @@ export default function ImageLightbox({ src, onClose }: Props) {
             style={{
               position: 'absolute', top: 16, right: 16,
               background: 'rgba(255,255,255,0.15)', border: 'none',
-              borderRadius: '50%', width: 40, height: 40,
+              borderRadius: '50%', width: 44, height: 44,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', color: '#fff', zIndex: 1001,
             }}
           >
-            <X size={20} />
+            <X size={22} />
           </button>
 
           <motion.img

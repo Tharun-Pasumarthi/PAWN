@@ -1,0 +1,31 @@
+import type { CapacitorConfig } from '@capacitor/cli'
+
+const config: CapacitorConfig = {
+  appId: 'com.pawnvault.app',
+  appName: 'PawnVault',
+  webDir: 'dist',
+  server: {
+    androidScheme: 'https'
+  },
+  android: {
+    backgroundColor: '#f5f7fa',
+    allowMixedContent: true,
+    captureInput: true,
+    webContentsDebuggingEnabled: false
+  },
+  plugins: {
+    SplashScreen: {
+      launchAutoHide: true,
+      launchShowDuration: 2000,
+      backgroundColor: '#f5f7fa',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false
+    },
+    StatusBar: {
+      style: 'LIGHT',
+      backgroundColor: '#6366f1'
+    }
+  }
+}
+
+export default config

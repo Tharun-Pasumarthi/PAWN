@@ -39,3 +39,6 @@ android/app/src/main/assets/public/
 android/local.properties
 *.apk
 *.aab
+
+# Added by ggshield
+.cache_ggshield

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PawnVault</string>
+    <string name="title_activity_main">PawnVault</string>
+    <string name="package_name">com.pawnvault.app</string>
+    <string name="custom_url_scheme">com.pawnvault.app</string>
+</resources>
