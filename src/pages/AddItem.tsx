@@ -19,9 +19,19 @@ export default function AddItem() {
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
   const fileRef = useRef<HTMLInputElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+
+  // Callback ref: attaches stream the instant the <video> element mounts
+  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node
+    if (node && streamRef.current) {
+      node.srcObject = streamRef.current
+      node.addEventListener('loadedmetadata', () => { node.play().catch(() => {}) }, { once: true })
+      if (node.readyState >= 1) node.play().catch(() => {})
+    }
+  }, [])
 
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(!!editId)
@@ -289,10 +299,11 @@ export default function AddItem() {
         audio: false
       })
       streamRef.current = stream
-      // If video element already mounted (e.g. flip while camera open), attach directly
+      // If video element is already mounted (camera flip), attach directly
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.play().catch(() => {})
+        videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current?.play().catch(() => {}) }, { once: true })
+        if (videoRef.current.readyState >= 1) videoRef.current.play().catch(() => {})
       }
       setCameraOpen(true)
     } catch {
@@ -309,11 +320,12 @@ export default function AddItem() {
     }
   }, [])
 
-  // Attach stream when <video> first mounts (cameraOpen goes false → true)
+  // Fallback: attach stream via effect in case callback ref fires before stream is ready
   useEffect(() => {
-    if (cameraOpen && videoRef.current && streamRef.current) {
+    if (cameraOpen && videoRef.current && streamRef.current && !videoRef.current.srcObject) {
       videoRef.current.srcObject = streamRef.current
-      videoRef.current.play().catch(() => {})
+      videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current?.play().catch(() => {}) }, { once: true })
+      if (videoRef.current.readyState >= 1) videoRef.current.play().catch(() => {})
     }
   }, [cameraOpen])
 
@@ -647,7 +659,7 @@ export default function AddItem() {
                   }}
                 >
                   <video
-                    ref={videoRef}
+                    ref={videoCallbackRef}
                     autoPlay
                     playsInline
                     muted

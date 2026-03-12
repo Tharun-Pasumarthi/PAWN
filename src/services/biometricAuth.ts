@@ -75,8 +75,7 @@ export function hasRegisteredUsers(): boolean {
  * The device will prompt the user to scan fingerprint or face.
  */
 export async function registerUser(name: string): Promise<{ success: boolean; error?: string }> {
-  const available = await isBiometricAvailable()
-  if (!available) return { success: false, error: 'Biometric authentication not available on this device' }
+  if (!window.PublicKeyCredential) return { success: false, error: 'WebAuthn is not supported on this browser' }
 
   const trimmed = name.trim()
   if (!trimmed) return { success: false, error: 'Name is required' }
@@ -114,7 +113,6 @@ export async function registerUser(name: string): Promise<{ success: boolean; er
           { alg: -257, type: 'public-key' }
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
           userVerification: 'required',
           residentKey: 'preferred'
         },
@@ -155,12 +153,8 @@ export function removeUser(name: string): boolean {
  * Returns the authenticated user's name, or null if failed.
  */
 export async function authenticateUser(): Promise<string | null> {
+  if (!window.PublicKeyCredential) return null
   const users = getUsers()
-
-  const available = await isBiometricAvailable()
-  if (!available) {
-    return null
-  }
 
   try {
     const challenge = new Uint8Array(32)
@@ -204,10 +198,7 @@ export async function authenticateUser(): Promise<string | null> {
  * Blocks only if biometric is not available on the device.
  */
 export async function requestBiometricAuth(_reason: string = 'Verify your identity'): Promise<boolean> {
-  const available = await isBiometricAvailable()
-  if (!available) {
-    return false
-  }
+  if (!window.PublicKeyCredential) return false
   const result = await authenticateUser()
   return result !== null
 }
