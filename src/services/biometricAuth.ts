@@ -214,6 +214,7 @@ export async function requestBiometricAuth(_reason: string = 'Verify your identi
 
 // ─── TOTP Authenticator App protection for Settings ───
 
+import { supabase } from './supabaseClient'
 import * as OTPAuth from 'otpauth'
 
 const TOTP_SECRET_KEY_BASE = 'pawnvault_totp_secret'
@@ -239,14 +240,41 @@ export function generateTotpSecret(): { secret: string; uri: string } {
   }
 }
 
-/** Save the TOTP secret after successful verification */
-export function saveTotpSecret(base32Secret: string): void {
+/** Save the TOTP secret — persists to both localStorage and Supabase user metadata */
+export async function saveTotpSecret(base32Secret: string): Promise<void> {
   localStorage.setItem(scopedKey(TOTP_SECRET_KEY_BASE), base32Secret)
+  try {
+    await supabase.auth.updateUser({ data: { totp_secret: base32Secret } })
+  } catch { /* localStorage is the local fallback */ }
 }
 
-/** Remove the TOTP secret (rollback on failed first-time verify) */
-export function removeTotpSecret(): void {
+/** Remove the TOTP secret — clears from both localStorage and Supabase */
+export async function removeTotpSecret(): Promise<void> {
   localStorage.removeItem(scopedKey(TOTP_SECRET_KEY_BASE))
+  try {
+    await supabase.auth.updateUser({ data: { totp_secret: null } })
+  } catch { /* silent */ }
+}
+
+/**
+ * Sync TOTP secret from Supabase user metadata to localStorage.
+ * Call on Settings mount so any device that shares the same account
+ * can skip the QR setup and go straight to code entry.
+ */
+export async function syncTotpFromSupabase(): Promise<void> {
+  if (!_activeUserId) return
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const cloudSecret: string | undefined = user?.user_metadata?.totp_secret
+    const localSecret = localStorage.getItem(scopedKey(TOTP_SECRET_KEY_BASE))
+    if (cloudSecret && !localSecret) {
+      // Pull from cloud → this device
+      localStorage.setItem(scopedKey(TOTP_SECRET_KEY_BASE), cloudSecret)
+    } else if (localSecret && !cloudSecret) {
+      // Push local → cloud (migrates existing users)
+      await supabase.auth.updateUser({ data: { totp_secret: localSecret } })
+    }
+  } catch { /* silent — localStorage remains source of truth */ }
 }
 
 /** Verify a 6-digit code from the authenticator app */

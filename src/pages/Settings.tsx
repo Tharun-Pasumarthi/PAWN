@@ -17,6 +17,7 @@ import {
   generateTotpSecret,
   saveTotpSecret,
   removeTotpSecret,
+  syncTotpFromSupabase,
   verifyTotpCode,
   type BioUser
 } from '../services/biometricAuth'
@@ -27,6 +28,7 @@ export default function Settings() {
   // ─── TOTP Gate state ───
   const [unlocked, setUnlocked] = useState(false)
   const [totpExists, setTotpExists] = useState(false)
+  const [totpSyncing, setTotpSyncing] = useState(true)
   // Setup flow
   const [setupSecret, setSetupSecret] = useState('')
   const [setupUri, setSetupUri] = useState('')
@@ -45,14 +47,16 @@ export default function Settings() {
   const [removingName, setRemovingName] = useState<string | null>(null)
 
   useEffect(() => {
-    const exists = isTotpSetUp()
-    setTotpExists(exists)
-    if (!exists) {
-      // Generate setup data for first-time setup
-      const { secret, uri } = generateTotpSecret()
-      setSetupSecret(secret)
-      setSetupUri(uri)
-    }
+    syncTotpFromSupabase().then(() => {
+      const exists = isTotpSetUp()
+      setTotpExists(exists)
+      if (!exists) {
+        const { secret, uri } = generateTotpSecret()
+        setSetupSecret(secret)
+        setSetupUri(uri)
+      }
+      setTotpSyncing(false)
+    })
   }, [])
 
   useEffect(() => {
@@ -67,7 +71,7 @@ export default function Settings() {
   }, [unlocked, totpExists])
 
   // ─── TOTP handlers ───
-  const handleVerifyAndSetup = () => {
+  const handleVerifyAndSetup = async () => {
     const code = otpCode.replace(/\s/g, '')
     if (code.length !== 6) { setOtpError('Enter the 6-digit code'); return }
     setVerifying(true)
@@ -75,14 +79,14 @@ export default function Settings() {
 
     // For first-time setup, temporarily save secret to verify against it
     if (!totpExists) {
-      saveTotpSecret(setupSecret)
+      await saveTotpSecret(setupSecret)
     }
 
     const valid = verifyTotpCode(code)
 
     if (!totpExists && !valid) {
       // Rollback: remove the temp-saved secret since verification failed
-      removeTotpSecret()
+      await removeTotpSecret()
     }
 
     if (valid) {
@@ -148,8 +152,18 @@ export default function Settings() {
     try {
       const removed = removeUser(name)
       if (removed) {
+        const remaining = getRegisteredUsers()
+        setUsers(remaining)
         toast.success(`${name} removed`)
-        setUsers(getRegisteredUsers())
+        // Last user deleted → reset TOTP so QR appears again on next visit
+        if (remaining.length === 0) {
+          await removeTotpSecret()
+          setTotpExists(false)
+          setUnlocked(false)
+          const { secret, uri } = generateTotpSecret()
+          setSetupSecret(secret)
+          setSetupUri(uri)
+        }
       } else {
         toast.error('User not found')
       }
@@ -180,7 +194,11 @@ export default function Settings() {
         >
 
           {/* ═══ TOTP GATE ═══ */}
-          {!unlocked ? (
+          {totpSyncing ? (
+            <div style={{ textAlign: 'center', padding: '60px 0' }}>
+              <Loader2 size={32} className="spin" style={{ color: 'var(--accent)' }} />
+            </div>
+          ) : !unlocked ? (
             <div>
               <div style={{ textAlign: 'center', marginBottom: 28 }}>
                 <div style={{

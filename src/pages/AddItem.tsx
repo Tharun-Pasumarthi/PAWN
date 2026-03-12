@@ -290,12 +290,6 @@ export default function AddItem() {
       })
       streamRef.current = stream
       setCameraOpen(true)
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play().catch(() => {})
-        }
-      })
     } catch {
       toast.error('Camera access denied or unavailable')
       stopCamera()
@@ -309,6 +303,14 @@ export default function AddItem() {
       }
     }
   }, [])
+
+  // Attach stream to <video> element after cameraOpen=true triggers its render
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [cameraOpen])
 
   const flipCamera = () => {
     const next = facingMode === 'environment' ? 'user' : 'environment'
