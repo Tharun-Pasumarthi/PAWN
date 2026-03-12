@@ -3,8 +3,12 @@
  *
  * Flow:
  * 1. Register a user — stores name in localStorage (Settings gate required via TOTP first)
- * 2. Authenticate — prompts for 6-digit TOTP code from MS Authenticator / any TOTP app
+ * 2. Authenticate — uses device fingerprint/face ID via native biometric plugin.
+ *    Falls back to TOTP code prompt if biometric hardware is unavailable.
  */
+
+// ─── Native biometric (Capacitor) ───
+import { NativeBiometric } from 'capacitor-native-biometric'
 
 // ─── User-scoped localStorage (multi-tenant) ───
 let _activeUserId = ''
@@ -38,9 +42,14 @@ function saveUsers(users: BioUser[]) {
 
 // ─── Public API ───
 
-/** @deprecated No longer used — authentication now uses TOTP */
+/** @deprecated No longer used directly — use requestBiometricAuth instead */
 export async function isBiometricAvailable(): Promise<boolean> {
-  return false
+  try {
+    const result = await NativeBiometric.isAvailable()
+    return result.isAvailable
+  } catch {
+    return false
+  }
 }
 
 /** Get all registered biometric users */
@@ -85,10 +94,27 @@ export function removeUser(name: string): boolean {
 }
 
 /**
- * Verify identity via TOTP code (prompted via browser dialog).
+ * Verify identity via device biometric (fingerprint / Face ID).
+ * Falls back to TOTP code prompt if biometric is not available.
  * Returns 'authenticated' on success, null on failure/cancel.
  */
 export async function authenticateUser(): Promise<string | null> {
+  try {
+    const { isAvailable } = await NativeBiometric.isAvailable()
+    if (isAvailable) {
+      await NativeBiometric.verifyIdentity({
+        title: 'Authentication Required',
+        subtitle: 'Verify your identity to continue',
+        negativeButtonText: 'Cancel',
+        maxAttempts: 3
+      })
+      return 'authenticated'
+    }
+  } catch (err: any) {
+    // User cancelled or biometric failed — do not fall through to TOTP
+    return null
+  }
+  // Biometric hardware not present — fall back to TOTP
   const stored = localStorage.getItem(scopedKey('pawnvault_totp_secret'))
   if (!stored) return null
   const code = window.prompt('Enter your 6-digit authenticator code:')
@@ -97,9 +123,26 @@ export async function authenticateUser(): Promise<string | null> {
 }
 
 /**
- * Prompt for TOTP code and return success boolean.
+ * Prompt device biometric and return success boolean.
+ * Falls back to TOTP code prompt if biometric hardware unavailable.
  */
 export async function requestBiometricAuth(reason: string = 'Verify your identity'): Promise<boolean> {
+  try {
+    const { isAvailable } = await NativeBiometric.isAvailable()
+    if (isAvailable) {
+      await NativeBiometric.verifyIdentity({
+        title: 'Authentication Required',
+        subtitle: reason,
+        negativeButtonText: 'Cancel',
+        maxAttempts: 3
+      })
+      return true
+    }
+  } catch {
+    // User cancelled or failed — deny
+    return false
+  }
+  // Biometric hardware not present — fall back to TOTP
   const stored = localStorage.getItem(scopedKey('pawnvault_totp_secret'))
   if (!stored) return false
   const code = window.prompt(`${reason}\n\nEnter your 6-digit authenticator code:`)
