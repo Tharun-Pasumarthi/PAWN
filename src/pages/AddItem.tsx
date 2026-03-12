@@ -7,7 +7,7 @@ import {
   SwitchCamera, Aperture, Users, Edit3, Trash2, CheckCircle, Gem
 } from 'lucide-react'
 import { supabase, STORAGE_BUCKET } from '../services/supabaseClient'
-import { requestBiometricAuth } from '../services/biometricAuth'
+import { useVerifyAuth } from '../hooks/useVerifyAuth'
 import { useAuth } from '../contexts/AuthContext'
 
 const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
@@ -16,6 +16,7 @@ type MediatorOption = typeof MEDIATORS[number]
 export default function AddItem() {
   const navigate = useNavigate()
   const { isSuperUser } = useAuth()
+  const { verify, modal: authModal } = useVerifyAuth()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -441,7 +442,7 @@ export default function AddItem() {
   }
 
   const handleEdit = async () => {
-    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
+    const verified = await verify('Authenticate to edit this pledge')
     if (!verified) {
       toast.error('Biometric verification failed')
       return
@@ -501,7 +502,7 @@ export default function AddItem() {
 
   const handleDelete = async () => {
     if (!savedItem) return
-    const verified = await requestBiometricAuth('Authenticate to delete this pledge')
+    const verified = await verify('Authenticate to delete this pledge')
     if (!verified) {
       toast.error('Biometric verification failed')
       return
@@ -917,6 +918,7 @@ export default function AddItem() {
         </>
         )}
       </main>
+      {authModal}
     </>
   )
 }

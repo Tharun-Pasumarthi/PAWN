@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import ImageLightbox from '../components/ImageLightbox'
-import { requestBiometricAuth } from '../services/biometricAuth'
+import { useVerifyAuth } from '../hooks/useVerifyAuth'
 import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem } from '../types'
 
@@ -19,6 +19,7 @@ export default function Items() {
   const [searchParams] = useSearchParams()
   const shopFilter = searchParams.get('shop')
   const { user, isSuperUser } = useAuth()
+  const { verify, modal: authModal } = useVerifyAuth()
 
   const [items, setItems] = useState<PawnItem[]>([])
   const [shopName, setShopName] = useState('')
@@ -85,7 +86,7 @@ export default function Items() {
   }), [shopItems])
 
   const handleEdit = async (item: PawnItem) => {
-    const verified = await requestBiometricAuth('Authenticate to edit this pledge')
+    const verified = await verify('Authenticate to edit this pledge')
     if (!verified) {
       toast.error('Biometric verification failed')
       return
@@ -94,7 +95,7 @@ export default function Items() {
   }
 
   const handleDelete = async (item: PawnItem) => {
-    const verified = await requestBiometricAuth('Authenticate to delete this pledge')
+    const verified = await verify('Authenticate to delete this pledge')
     if (!verified) {
       toast.error('Biometric verification failed')
       return
@@ -345,6 +346,7 @@ export default function Items() {
       </main>
 
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      {authModal}
     </>
   )
 }
