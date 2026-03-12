@@ -289,6 +289,11 @@ export default function AddItem() {
         audio: false
       })
       streamRef.current = stream
+      // If video element already mounted (e.g. flip while camera open), attach directly
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play().catch(() => {})
+      }
       setCameraOpen(true)
     } catch {
       toast.error('Camera access denied or unavailable')
@@ -304,7 +309,7 @@ export default function AddItem() {
     }
   }, [])
 
-  // Attach stream to <video> element after cameraOpen=true triggers its render
+  // Attach stream when <video> first mounts (cameraOpen goes false → true)
   useEffect(() => {
     if (cameraOpen && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current
