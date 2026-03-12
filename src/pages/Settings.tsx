@@ -8,7 +8,6 @@ import {
   Lock, Smartphone, Copy, CheckCircle
 } from 'lucide-react'
 import {
-  isBiometricAvailable,
   getRegisteredUsers,
   registerUser,
   removeUser,
@@ -39,8 +38,7 @@ export default function Settings() {
   const [otpError, setOtpError] = useState('')
   const codeRef = useRef<HTMLInputElement>(null)
 
-  // ─── Biometric management state ───
-  const [bioAvailable, setBioAvailable] = useState<boolean | null>(null)
+  // ─── User management state ───
   const [users, setUsers] = useState<BioUser[]>([])
   const [newName, setNewName] = useState('')
   const [registering, setRegistering] = useState(false)
@@ -60,10 +58,7 @@ export default function Settings() {
   }, [])
 
   useEffect(() => {
-    if (unlocked) {
-      isBiometricAvailable().then(setBioAvailable)
-      setUsers(getRegisteredUsers())
-    }
+    if (unlocked) setUsers(getRegisteredUsers())
   }, [unlocked])
 
   useEffect(() => {
@@ -313,38 +308,13 @@ export default function Settings() {
           <>
             <div className="card" style={{ marginBottom: 20, background: 'var(--accent-light)', border: '1px solid var(--accent)' }}>
               <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
-                How Biometric Protection Works
+                How Edit/Delete Protection Works
               </div>
               <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                <li><strong>Register</strong> — Enter a name and scan fingerprint or face below</li>
-                <li><strong>Protect</strong> — Edit, Delete, and Release actions will require the scan</li>
-                <li><strong>Strict</strong> — Without a registered user, no one can edit/delete/release items</li>
+                <li><strong>Register</strong> — Add authorized user names below</li>
+                <li><strong>Protect</strong> — Edit and Delete actions require your authenticator code</li>
+                <li><strong>Strict</strong> — Without a registered user, no one can edit or delete items</li>
               </ol>
-            </div>
-
-            <div className="card" style={{ marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <Fingerprint size={20} color="var(--accent)" />
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)' }}>
-                  Biometric Authentication
-                </div>
-              </div>
-
-              {bioAvailable === null ? (
-                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
-                  <Loader2 size={20} className="spin" />
-                </div>
-              ) : bioAvailable ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--accent-light)', borderRadius: 'var(--radius-sm)', fontSize: '0.8125rem', color: 'var(--accent)' }}>
-                  <ShieldCheck size={16} />
-                  Fingerprint / Face ID is available on this device
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', fontSize: '0.8125rem', color: 'var(--warning)' }}>
-                  <AlertCircle size={16} />
-                  Biometric authentication is not available on this device
-                </div>
-              )}
             </div>
 
             <div className="card" style={{ marginBottom: 20 }}>
@@ -369,11 +339,11 @@ export default function Settings() {
                   style={{ borderRadius: 'var(--radius-md)', padding: '12px 20px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   {registering ? <Loader2 size={16} className="spin" /> : <UserPlus size={16} />}
-                  {registering ? 'Scanning…' : 'Register'}
+                  {registering ? 'Saving…' : 'Register'}
                 </motion.button>
               </div>
               <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                The device will prompt for fingerprint or face scan during registration.
+                Registered users can edit and delete items after verifying with the authenticator code.
               </div>
             </div>
 
@@ -387,8 +357,8 @@ export default function Settings() {
                   <Fingerprint size={32} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
                   <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>No users registered</div>
                   <div style={{ fontSize: '0.8125rem', marginTop: 4 }}>
-                    Register a user above to enable biometric protection.<br />
-                    <strong style={{ color: 'var(--danger)' }}>Without a registered user, edit/delete/release will be blocked.</strong>
+                    Register a user above to enable edit/delete protection.<br />
+                    <strong style={{ color: 'var(--danger)' }}>Without a registered user, edit and delete will be blocked.</strong>
                   </div>
                 </div>
               ) : (

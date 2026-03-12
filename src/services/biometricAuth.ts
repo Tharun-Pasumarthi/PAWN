@@ -1,10 +1,9 @@
 /**
- * Biometric authentication with per-user registration.
- * Uses Web Authentication API for fingerprint / Face ID / PIN.
+ * User registration + edit/delete protection.
  *
  * Flow:
- * 1. Register a user — stores credential ID in localStorage
- * 2. Authenticate — verifies using stored credential
+ * 1. Register a user — stores name in localStorage (Settings gate required via TOTP first)
+ * 2. Authenticate — prompts for 6-digit TOTP code from MS Authenticator / any TOTP app
  */
 
 // ─── User-scoped localStorage (multi-tenant) ───
@@ -27,17 +26,6 @@ export interface BioUser {
 
 // ─── Helpers ───
 
-function toBase64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-}
-
-function fromBase64(str: string): Uint8Array {
-  const binary = atob(str)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
-
 function getUsers(): BioUser[] {
   try {
     return JSON.parse(localStorage.getItem(scopedKey(STORAGE_KEY_BASE)) || '[]')
@@ -50,14 +38,9 @@ function saveUsers(users: BioUser[]) {
 
 // ─── Public API ───
 
-/** Check if the device supports biometric / platform authentication */
+/** @deprecated No longer used — authentication now uses TOTP */
 export async function isBiometricAvailable(): Promise<boolean> {
-  if (!window.PublicKeyCredential) return false
-  try {
-    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-  } catch {
-    return false
-  }
+  return false
 }
 
 /** Get all registered biometric users */
@@ -71,71 +54,25 @@ export function hasRegisteredUsers(): boolean {
 }
 
 /**
- * Register a new user with biometric credential (fingerprint / Face ID).
- * The device will prompt the user to scan fingerprint or face.
+ * Register a new authorized user by name.
+ * No device credential required — access is controlled by the TOTP gate in Settings.
  */
 export async function registerUser(name: string): Promise<{ success: boolean; error?: string }> {
-  if (!window.PublicKeyCredential) return { success: false, error: 'WebAuthn is not supported on this browser' }
-
   const trimmed = name.trim()
   if (!trimmed) return { success: false, error: 'Name is required' }
 
-  // Check duplicate name
   const existing = getUsers()
   if (existing.some(u => u.name.toLowerCase() === trimmed.toLowerCase())) {
     return { success: false, error: 'A user with this name is already registered' }
   }
 
-  try {
-    const challenge = new Uint8Array(32)
-    crypto.getRandomValues(challenge)
-
-    // Generate a unique user ID from the name
-    const userId = new TextEncoder().encode(trimmed.slice(0, 64))
-
-    // Get existing credential IDs to exclude (prevent re-registration of same authenticator)
-    const excludeCredentials: PublicKeyCredentialDescriptor[] = existing.map(u => ({
-      id: fromBase64(u.credentialId).buffer as ArrayBuffer,
-      type: 'public-key' as const
-    }))
-
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: { name: 'PawnVault', id: window.location.hostname },
-        user: {
-          id: userId,
-          name: trimmed,
-          displayName: trimmed
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },
-          { alg: -257, type: 'public-key' }
-        ],
-        authenticatorSelection: {
-          userVerification: 'required',
-          residentKey: 'preferred'
-        },
-        excludeCredentials,
-        timeout: 60000
-      }
-    }) as PublicKeyCredential | null
-
-    if (!credential) return { success: false, error: 'Registration cancelled' }
-
-    const newUser: BioUser = {
-      name: trimmed,
-      credentialId: toBase64(credential.rawId),
-      registeredAt: new Date().toISOString()
-    }
-
-    saveUsers([...existing, newUser])
-    return { success: true }
-  } catch (err: any) {
-    if (err.name === 'NotAllowedError') return { success: false, error: 'Registration cancelled by user' }
-    if (err.name === 'InvalidStateError') return { success: false, error: 'This biometric is already registered to another user' }
-    return { success: false, error: err.message || 'Registration failed' }
+  const newUser: BioUser = {
+    name: trimmed,
+    credentialId: '',
+    registeredAt: new Date().toISOString()
   }
+  saveUsers([...existing, newUser])
+  return { success: true }
 }
 
 /** Remove a registered user */
@@ -148,59 +85,26 @@ export function removeUser(name: string): boolean {
 }
 
 /**
- * Authenticate using a registered biometric credential.
- * Prompts fingerprint / Face ID and verifies against registered users.
- * Returns the authenticated user's name, or null if failed.
+ * Verify identity via TOTP code (prompted via browser dialog).
+ * Returns 'authenticated' on success, null on failure/cancel.
  */
 export async function authenticateUser(): Promise<string | null> {
-  if (!window.PublicKeyCredential) return null
-  const users = getUsers()
-
-  try {
-    const challenge = new Uint8Array(32)
-    crypto.getRandomValues(challenge)
-
-    // If we have stored credential IDs (registered via Settings), use them.
-    // Otherwise send an empty list → device uses discoverable/resident credentials
-    // (MS Authenticator, fingerprint, Face ID registered on the device).
-    const allowCredentials: PublicKeyCredentialDescriptor[] = users.map(u => ({
-      id: fromBase64(u.credentialId).buffer as ArrayBuffer,
-      type: 'public-key' as const
-    }))
-
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        timeout: 60000,
-        userVerification: 'required',
-        rpId: window.location.hostname,
-        ...(allowCredentials.length > 0 ? { allowCredentials } : {})
-      }
-    }) as PublicKeyCredential | null
-
-    if (!assertion) return null
-
-    // If we have registered users, try to match the returned credential.
-    // If no registered users but auth succeeded, still accept it (discoverable credential).
-    if (users.length > 0) {
-      const returnedId = toBase64(assertion.rawId)
-      const matched = users.find(u => u.credentialId === returnedId)
-      return matched ? matched.name : 'authenticated'
-    }
-    return 'authenticated'
-  } catch {
-    return null
-  }
+  const stored = localStorage.getItem(scopedKey('pawnvault_totp_secret'))
+  if (!stored) return null
+  const code = window.prompt('Enter your 6-digit authenticator code:')
+  if (!code) return null
+  return verifyTotpCode(code.trim()) ? 'authenticated' : null
 }
 
 /**
- * Convenience wrapper: prompt biometric and return success boolean.
- * Blocks only if biometric is not available on the device.
+ * Prompt for TOTP code and return success boolean.
  */
-export async function requestBiometricAuth(_reason: string = 'Verify your identity'): Promise<boolean> {
-  if (!window.PublicKeyCredential) return false
-  const result = await authenticateUser()
-  return result !== null
+export async function requestBiometricAuth(reason: string = 'Verify your identity'): Promise<boolean> {
+  const stored = localStorage.getItem(scopedKey('pawnvault_totp_secret'))
+  if (!stored) return false
+  const code = window.prompt(`${reason}\n\nEnter your 6-digit authenticator code:`)
+  if (!code) return false
+  return verifyTotpCode(code.trim())
 }
 
 // ─── TOTP Authenticator App protection for Settings ───
