@@ -25,40 +25,22 @@ export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.
   const csv = buildCsv(data)
 
   if (Capacitor.isNativePlatform()) {
-    try {
-      // Native Android: write to cache directory, then share via FileProvider
-      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
-      const { Share } = await import('@capacitor/share')
+    // Native Android: write to Data directory then share via files[] array
+    // Using files[] (not url:) makes Capacitor Share handle file:// → content:// conversion internally
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+    const { Share } = await import('@capacitor/share')
 
-      console.log('Starting CSV export...')
+    const writeResult = await Filesystem.writeFile({
+      path: filename,
+      data: csv,
+      directory: Directory.Data,
+      encoding: Encoding.UTF8
+    })
 
-      // Write to Cache directory first (app-internal, no permissions needed)
-      await Filesystem.writeFile({
-        path: filename,
-        data: csv,
-        directory: Directory.Cache,
-        encoding: Encoding.UTF8
-      })
-      console.log('File written to cache')
-
-      // Get the URI (will be a content:// URI via FileProvider on Android)
-      const { uri } = await Filesystem.getUri({
-        directory: Directory.Cache,
-        path: filename
-      })
-      console.log('File URI:', uri)
-
-      // Share with content:// URI
-      await Share.share({
-        title: 'CSV Export',
-        url: uri,
-        dialogTitle: 'Save or share CSV'
-      })
-      console.log('Share completed')
-    } catch (err: any) {
-      console.error('Export error:', err)
-      throw new Error(`Export failed: ${err.message || err}`)
-    }
+    await Share.share({
+      files: [writeResult.uri],
+      dialogTitle: 'Save or share CSV'
+    })
   } else {
     // Web / Desktop: standard anchor download
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
