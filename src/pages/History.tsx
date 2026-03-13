@@ -73,10 +73,11 @@ export default function History() {
     if (!filtered.length) { toast.error('No data to export'); return }
     const stamp = new Date().toISOString().split('T')[0]
     try {
-      await exportToCSV(filtered, `pawn-history-${stamp}.csv`)
-      toast.success('CSV exported')
-    } catch {
-      toast.error('Export failed')
+      const message = await exportToCSV(filtered, `pawn-history-${stamp}.csv`)
+      toast.success(message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export failed'
+      toast.error(message)
     }
   }
 

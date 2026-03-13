@@ -8,7 +8,16 @@
  */
 
 // ─── Native biometric (Capacitor) ───
-import { NativeBiometric } from 'capacitor-native-biometric'
+type NativeBiometricPlugin = typeof import('capacitor-native-biometric').NativeBiometric
+
+async function getNativeBiometric(): Promise<NativeBiometricPlugin | null> {
+  try {
+    const mod = await import('capacitor-native-biometric')
+    return mod.NativeBiometric
+  } catch {
+    return null
+  }
+}
 
 // ─── User-scoped localStorage (multi-tenant) ───
 let _activeUserId = ''
@@ -45,6 +54,8 @@ function saveUsers(users: BioUser[]) {
 /** @deprecated No longer used directly — use requestBiometricAuth instead */
 export async function isBiometricAvailable(): Promise<boolean> {
   try {
+    const NativeBiometric = await getNativeBiometric()
+    if (!NativeBiometric) return false
     const result = await NativeBiometric.isAvailable()
     return result.isAvailable
   } catch {
@@ -100,6 +111,8 @@ export function removeUser(name: string): boolean {
  */
 export async function authenticateUser(): Promise<string | null> {
   try {
+    const NativeBiometric = await getNativeBiometric()
+    if (!NativeBiometric) throw new Error('Native biometric unavailable')
     const { isAvailable } = await NativeBiometric.isAvailable()
     if (isAvailable) {
       await NativeBiometric.verifyIdentity({
@@ -128,6 +141,8 @@ export async function authenticateUser(): Promise<string | null> {
  */
 export async function requestBiometricAuth(reason: string = 'Verify your identity'): Promise<boolean> {
   try {
+    const NativeBiometric = await getNativeBiometric()
+    if (!NativeBiometric) throw new Error('Native biometric unavailable')
     const { isAvailable } = await NativeBiometric.isAvailable()
     if (isAvailable) {
       await NativeBiometric.verifyIdentity({

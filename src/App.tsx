@@ -67,7 +67,7 @@ function AppRoutes() {
       </Routes>
       <BottomNav />
       <InstallBanner />
-      <UpdatePrompt />
+      {!Capacitor.isNativePlatform() && <UpdatePrompt />}
     </>
   )
 }
