@@ -25,27 +25,34 @@ export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.
   const csv = buildCsv(data)
 
   if (Capacitor.isNativePlatform()) {
-    // Native Android: write to cache dir then share via OS sheet
-    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
-    const { Share } = await import('@capacitor/share')
+    try {
+      // Native Android: write to app's documents directory, then share via FileProvider
+      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+      const { Share } = await import('@capacitor/share')
 
-    await Filesystem.writeFile({
-      path: filename,
-      data: csv,
-      directory: Directory.Cache,
-      encoding: Encoding.UTF8
-    })
+      // Write to Documents directory (accessible via FileProvider)
+      await Filesystem.writeFile({
+        path: filename,
+        data: csv,
+        directory: Directory.Documents,
+        encoding: Encoding.UTF8
+      })
 
-    const { uri } = await Filesystem.getUri({
-      directory: Directory.Cache,
-      path: filename
-    })
+      // Get the URI (will be a content:// URI via FileProvider on Android)
+      const { uri } = await Filesystem.getUri({
+        directory: Directory.Documents,
+        path: filename
+      })
 
-    await Share.share({
-      title: filename,
-      url: uri,
-      dialogTitle: 'Save or share CSV'
-    })
+      // Share with content:// URI
+      await Share.share({
+        title: 'CSV Export',
+        url: uri,
+        dialogTitle: 'Save or share CSV'
+      })
+    } catch (err: any) {
+      throw new Error(`Export failed: ${err.message || err}`)
+    }
   } else {
     // Web / Desktop: standard anchor download
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
