@@ -26,23 +26,27 @@ export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.
 
   if (Capacitor.isNativePlatform()) {
     try {
-      // Native Android: write to app's documents directory, then share via FileProvider
+      // Native Android: write to cache directory, then share via FileProvider
       const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
       const { Share } = await import('@capacitor/share')
 
-      // Write to Documents directory (accessible via FileProvider)
+      console.log('Starting CSV export...')
+
+      // Write to Cache directory first (app-internal, no permissions needed)
       await Filesystem.writeFile({
         path: filename,
         data: csv,
-        directory: Directory.Documents,
+        directory: Directory.Cache,
         encoding: Encoding.UTF8
       })
+      console.log('File written to cache')
 
       // Get the URI (will be a content:// URI via FileProvider on Android)
       const { uri } = await Filesystem.getUri({
-        directory: Directory.Documents,
+        directory: Directory.Cache,
         path: filename
       })
+      console.log('File URI:', uri)
 
       // Share with content:// URI
       await Share.share({
@@ -50,7 +54,9 @@ export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.
         url: uri,
         dialogTitle: 'Save or share CSV'
       })
+      console.log('Share completed')
     } catch (err: any) {
+      console.error('Export error:', err)
       throw new Error(`Export failed: ${err.message || err}`)
     }
   } else {
