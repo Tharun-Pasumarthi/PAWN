@@ -9,6 +9,7 @@ import {
 import { supabase } from '../services/supabaseClient'
 import { exportToCSV } from '../services/csvExport'
 import ImageLightbox from '../components/ImageLightbox'
+import ResolvedImage from '../components/ResolvedImage'
 import type { PawnHistory } from '../types'
 
 type Tab = 'all' | 'recent' | 'high'
@@ -190,7 +191,18 @@ export default function History() {
                   >
                     <div className="history-card-header">
                       {row.image_url ? (
-                        <img src={row.image_url} alt="" className="history-thumb" onClick={e => { e.stopPropagation(); setLightboxSrc(row.image_url) }} style={{ cursor: 'zoom-in' }} />
+                        <ResolvedImage
+                          src={row.image_url}
+                          alt=""
+                          className="history-thumb"
+                          onClick={e => { e.stopPropagation(); setLightboxSrc(row.image_url) }}
+                          style={{ cursor: 'zoom-in' }}
+                          fallback={(
+                            <div className="history-thumb" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)' }}>
+                              <ImageIcon size={20} color="var(--text-muted)" />
+                            </div>
+                          )}
+                        />
                       ) : (
                         <div className="history-thumb" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)' }}>
                           <ImageIcon size={20} color="var(--text-muted)" />

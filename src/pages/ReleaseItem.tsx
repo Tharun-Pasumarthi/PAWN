@@ -8,10 +8,13 @@ import {
 import { supabase } from '../services/supabaseClient'
 import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
 import ImageLightbox from '../components/ImageLightbox'
+import ResolvedImage from '../components/ResolvedImage'
+import { useAuth } from '../contexts/AuthContext'
 import type { PawnItem, InterestResult } from '../types'
 
 export default function ReleaseItem() {
   const navigate = useNavigate()
+  const { isSuperUser } = useAuth()
 
   const [allItems, setAllItems] = useState<PawnItem[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
@@ -22,11 +25,15 @@ export default function ReleaseItem() {
   const [searching, setSearching] = useState(false)
   const [releasing, setReleasing] = useState(false)
 
-  const [rateOption, setRateOption] = useState<string>('1')
+  const defaultSingleRate = isSuperUser ? '1' : '1.5'
+  const defaultPhaseRate1 = isSuperUser ? '1' : '1.5'
+  const defaultPhaseRate2 = isSuperUser ? '1.15' : '1.5'
+
+  const [rateOption, setRateOption] = useState<string>(defaultSingleRate)
   const [customRate, setCustomRate] = useState('')
-  const [p1Rate, setP1Rate] = useState<string>('1')
+  const [p1Rate, setP1Rate] = useState<string>(defaultPhaseRate1)
   const [p1Custom, setP1Custom] = useState('')
-  const [p2Rate, setP2Rate] = useState<string>('1.15')
+  const [p2Rate, setP2Rate] = useState<string>(defaultPhaseRate2)
   const [p2Custom, setP2Custom] = useState('')
   const [usePhaseCalculator, setUsePhaseCalculator] = useState(false)
   const [phaseBoundaryDate, setPhaseBoundaryDate] = useState('2025-04-01')
@@ -34,6 +41,8 @@ export default function ReleaseItem() {
   const [calc, setCalc] = useState<InterestResult | null>(null)
   const [showPhases, setShowPhases] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+
+  const rateOptions = isSuperUser ? SUPER_RATES : NORMAL_RATES
 
   // Fetch all active items on mount
   useEffect(() => {
@@ -67,16 +76,25 @@ export default function ReleaseItem() {
     setSerial(picked.serial_number)
     setCalc(null)
     const mandatoryPhase = isTwoPhase(picked.pledge_date, releaseDate, picked.mediator_name)
+    const baseRates = (isSuperUser ? SUPER_BASE_RATES : NORMAL_BASE_RATES) as readonly string[]
     if (mandatoryPhase) {
       setUsePhaseCalculator(true)
       setPhaseBoundaryDate('2025-04-01')
-      setP1Rate('1')
-      setP2Rate('1.15')
-      recalculate(picked, '1', '', releaseDate, '1', '', '1.15', '', true, '2025-04-01')
+      setP1Rate(defaultPhaseRate1)
+      setP2Rate(defaultPhaseRate2)
+      recalculate(picked, defaultPhaseRate1, '', releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', true, '2025-04-01')
     } else {
       setUsePhaseCalculator(false)
-      setRateOption(String(picked.interest_rate))
-      recalculate(picked, String(picked.interest_rate), '', releaseDate, '1', '', '1.15', '', false, phaseBoundaryDate)
+      const pickedRate = String(picked.interest_rate)
+      if (baseRates.includes(pickedRate as typeof baseRates[number])) {
+        setRateOption(pickedRate)
+        setCustomRate('')
+        recalculate(picked, pickedRate, '', releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', false, phaseBoundaryDate)
+      } else {
+        setRateOption('custom')
+        setCustomRate(pickedRate)
+        recalculate(picked, 'custom', pickedRate, releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', false, phaseBoundaryDate)
+      }
     }
   }
 
@@ -96,23 +114,32 @@ export default function ReleaseItem() {
       if (!data) { toast.error('Item not found or already released'); return }
       setItem(data as PawnItem)
       const mandatoryPhase = isTwoPhase(data.pledge_date, releaseDate, (data as PawnItem).mediator_name)
+      const baseRates = (isSuperUser ? SUPER_BASE_RATES : NORMAL_BASE_RATES) as readonly string[]
       if (mandatoryPhase) {
         setUsePhaseCalculator(true)
         setPhaseBoundaryDate('2025-04-01')
-        setP1Rate('1')
-        setP2Rate('1.15')
-        recalculate(data as PawnItem, '1', '', releaseDate, '1', '', '1.15', '', true, '2025-04-01')
+        setP1Rate(defaultPhaseRate1)
+        setP2Rate(defaultPhaseRate2)
+        recalculate(data as PawnItem, defaultPhaseRate1, '', releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', true, '2025-04-01')
       } else {
         setUsePhaseCalculator(false)
-        setRateOption(String(data.interest_rate))
-        recalculate(data as PawnItem, String(data.interest_rate), '', releaseDate, '1', '', '1.15', '', false, phaseBoundaryDate)
+        const pickedRate = String((data as PawnItem).interest_rate)
+        if (baseRates.includes(pickedRate as typeof baseRates[number])) {
+          setRateOption(pickedRate)
+          setCustomRate('')
+          recalculate(data as PawnItem, pickedRate, '', releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', false, phaseBoundaryDate)
+        } else {
+          setRateOption('custom')
+          setCustomRate(pickedRate)
+          recalculate(data as PawnItem, 'custom', pickedRate, releaseDate, defaultPhaseRate1, '', defaultPhaseRate2, '', false, phaseBoundaryDate)
+        }
       }
     } catch (err: any) {
       toast.error(err.message ?? 'Search failed')
     } finally {
       setSearching(false)
     }
-  }, [serial, releaseDate])
+  }, [serial, releaseDate, isSuperUser, defaultPhaseRate1, defaultPhaseRate2, phaseBoundaryDate])
 
   const phaseMandatory = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name) : false
   // Any item with at least 2 days can use phase calculator
@@ -176,14 +203,14 @@ export default function ReleaseItem() {
     const next = !usePhaseCalculator
     setUsePhaseCalculator(next)
     if (next) {
-      setP1Rate('1')
-      setP2Rate('1.15')
+      setP1Rate(defaultPhaseRate1)
+      setP2Rate(defaultPhaseRate2)
       // Default boundary: midpoint between pledge and release
       const pMs = new Date(item.pledge_date).getTime()
       const rMs = new Date(releaseDate).getTime()
       const midDate = new Date(pMs + (rMs - pMs) / 2).toISOString().split('T')[0]
       setPhaseBoundaryDate(midDate)
-      recalculate(item, rateOption, customRate, releaseDate, '1', p1Custom, '1.15', p2Custom, true, midDate)
+      recalculate(item, rateOption, customRate, releaseDate, defaultPhaseRate1, p1Custom, defaultPhaseRate2, p2Custom, true, midDate)
     } else {
       recalculate(item, rateOption, customRate, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, false, phaseBoundaryDate)
     }
@@ -339,7 +366,13 @@ export default function ReleaseItem() {
                           overflow: 'hidden', flexShrink: 0,
                           border: '1px solid var(--border-subtle)'
                         }}>
-                          <img src={itm.image_url} alt="" onClick={e => { e.stopPropagation(); setLightboxSrc(itm.image_url) }} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
+                          <ResolvedImage
+                            src={itm.image_url}
+                            alt=""
+                            onClick={e => { e.stopPropagation(); setLightboxSrc(itm.image_url) }}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }}
+                            fallback={<Package size={22} color="var(--accent)" />}
+                          />
                         </div>
                       ) : (
                         <div style={{
@@ -411,7 +444,12 @@ export default function ReleaseItem() {
                     </div>
                     {item.image_url && (
                       <div style={{ width: 80, height: 80, borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-subtle)' }}>
-                        <img src={item.image_url} alt="item" onClick={() => setLightboxSrc(item.image_url)} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
+                        <ResolvedImage
+                          src={item.image_url}
+                          alt="item"
+                          onClick={() => setLightboxSrc(item.image_url)}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }}
+                        />
                       </div>
                     )}
                   </div>
@@ -473,7 +511,7 @@ export default function ReleaseItem() {
                           Phase 1 Rate — Before {formatDate(phaseBoundaryDate)}
                         </label>
                         <div className="chip-group">
-                          {RATES.map(r => (
+                          {rateOptions.map(r => (
                             <button key={r.value} className={`chip ${p1Rate === r.value ? 'active' : ''}`} onClick={() => onP1Change(r.value)}>
                               {r.label}
                             </button>
@@ -490,7 +528,7 @@ export default function ReleaseItem() {
                           Phase 2 Rate — From {formatDate(phaseBoundaryDate)}
                         </label>
                         <div className="chip-group">
-                          {RATES.map(r => (
+                          {rateOptions.map(r => (
                             <button key={r.value} className={`chip ${p2Rate === r.value ? 'active' : ''}`} onClick={() => onP2Change(r.value)}>
                               {r.label}
                             </button>
@@ -508,7 +546,7 @@ export default function ReleaseItem() {
                         Interest Rate (%)
                       </label>
                       <div className="chip-group">
-                        {RATES.map(r => (
+                        {rateOptions.map(r => (
                           <button key={r.value} className={`chip ${rateOption === r.value ? 'active' : ''}`} onClick={() => onRateChange(r.value)}>
                             {r.label}
                           </button>
@@ -646,10 +684,21 @@ export default function ReleaseItem() {
   )
 }
 
-const RATES = [
+const SUPER_BASE_RATES = ['1', '1.15', '1.25'] as const
+const NORMAL_BASE_RATES = ['1.5', '2', '3', '5'] as const
+
+const SUPER_RATES = [
   { value: '1', label: '1.0%' },
   { value: '1.15', label: '1.15%' },
   { value: '1.25', label: '1.25%' },
+  { value: 'custom', label: 'Custom' }
+]
+
+const NORMAL_RATES = [
+  { value: '1.5', label: '1.5%' },
+  { value: '2', label: '2%' },
+  { value: '3', label: '3%' },
+  { value: '5', label: '5%' },
   { value: 'custom', label: 'Custom' }
 ]
 

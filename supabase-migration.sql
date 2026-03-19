@@ -303,6 +303,13 @@ CREATE POLICY "shop_history_select" ON pawn_history
   );
 
 
+-- ════════════════════════════════════════════════════════════════
+-- PART 9 — ITEM WEIGHT FIELD
+-- ════════════════════════════════════════════════════════════════
+
+ALTER TABLE pawn_items ADD COLUMN IF NOT EXISTS weight numeric;
+
+
 -- ══════════════════════════════════════════════════════════════
 -- PART 8 — Fix mutable search_path on update_updated_at_column
 -- ══════════════════════════════════════════════════════════════

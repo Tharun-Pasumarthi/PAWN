@@ -1,9 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { useEffect } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
+import { syncPendingPledges } from './services/pendingPledgeQueue'
 import Dashboard from './pages/Dashboard'
 import AddItem from './pages/AddItem'
 import Items from './pages/Items'
@@ -19,9 +22,10 @@ import BottomNav from './components/BottomNav'
 import { Loader2 } from 'lucide-react'
 
 function AppRoutes() {
-  const { user, loading } = useAuth()
+  const { user, loading, isSuperUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const isOnline = useOnlineStatus()
 
   // Handle Android hardware back button
   useEffect(() => {
@@ -35,6 +39,18 @@ function AppRoutes() {
     })
     return () => { handler.then(h => h.remove()) }
   }, [location.pathname, navigate])
+
+  useEffect(() => {
+    if (!user || !isOnline || isSuperUser) return
+
+    let cancelled = false
+    syncPendingPledges().then(({ synced, failed }) => {
+      if (cancelled) return
+      if (synced > 0) toast.success(`Synced ${synced} offline pledge(s)`)
+      if (failed > 0) toast.error(`${failed} offline pledge(s) still pending`)
+    })
+    return () => { cancelled = true }
+  }, [user, isOnline, isSuperUser])
 
   if (loading) {
     return (

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
+import { useResolvedImage } from '../hooks/useResolvedImage'
 
 interface Props {
   src: string | null
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export default function ImageLightbox({ src, onClose }: Props) {
+  const resolvedSrc = useResolvedImage(src)
+
   useEffect(() => {
     if (!src) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -17,7 +20,7 @@ export default function ImageLightbox({ src, onClose }: Props) {
 
   return (
     <AnimatePresence>
-      {src && (
+      {src && resolvedSrc && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -48,7 +51,7 @@ export default function ImageLightbox({ src, onClose }: Props) {
           </button>
 
           <motion.img
-            src={src}
+            src={resolvedSrc}
             alt="Full view"
             initial={{ scale: 0.88, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}

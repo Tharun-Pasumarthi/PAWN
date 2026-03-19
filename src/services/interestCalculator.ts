@@ -200,5 +200,9 @@ export function getRateLabel(rate: number): string {
   if (rate === 1) return '12% / year'
   if (rate === 1.15) return '13.8% / year'
   if (rate === 1.25) return '15% / year'
+  if (rate === 1.5) return '18% / year'
+  if (rate === 2) return '24% / year'
+  if (rate === 3) return '36% / year'
+  if (rate === 5) return '60% / year'
   return `${(rate * 12).toFixed(1)}% / year`
 }

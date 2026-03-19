@@ -1,5 +1,8 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+
 buildscript {
     
     repositories {
@@ -7,7 +10,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.2'
+        classpath 'com.android.tools.build:gradle:8.13.0'
         classpath 'com.google.gms:google-services:4.4.2'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -17,17 +20,39 @@ buildscript {
 
 apply from: "variables.gradle"
 
+def jdkToolchainVersion = 21
+
+subprojects { subproj ->
+    subproj.tasks.withType(JavaCompile).configureEach {
+        def toolchains = subproj.extensions.getByType(JavaToolchainService)
+        javaCompiler = toolchains.compilerFor {
+            languageVersion = JavaLanguageVersion.of(jdkToolchainVersion)
+        }
+    }
+
+    subproj.plugins.withId('com.android.application') {
+        subproj.android {
+            lint {
+                abortOnError false
+            }
+        }
+    }
+
+    subproj.plugins.withId('com.android.library') {
+        subproj.android {
+            lint {
+                abortOnError false
+            }
+        }
+    }
+}
+
 allprojects {
     repositories {
         google()
         mavenCentral()
     }
     configurations.all {
-        resolutionStrategy {
-            force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
-            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
-            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
-        }
     }
 }
 

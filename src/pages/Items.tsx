@@ -4,9 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Search, Plus, Edit3, Trash2, Package, Gem, Loader2,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Download, Calendar
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
+import { exportItemsToCSV } from '../services/csvExport'
+import ResolvedImage from '../components/ResolvedImage'
 import ImageLightbox from '../components/ImageLightbox'
 import { useVerifyAuth } from '../hooks/useVerifyAuth'
 import { useAuth } from '../contexts/AuthContext'
@@ -26,6 +28,10 @@ export default function Items() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterStatus>('active')
+  const [dateMode, setDateMode] = useState<'single' | 'range'>('single')
+  const [filterDate, setFilterDate] = useState('')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -63,6 +69,22 @@ export default function Items() {
     let list = items
     if (shopFilter) list = list.filter(i => (i as any).user_id === shopFilter)
     if (filter !== 'all') list = list.filter(i => i.status === filter)
+    if (!isSuperUser) {
+      if (dateMode === 'single' && filterDate) {
+        const target = filterDate
+        list = list.filter(i => dateOnly(i.pledge_date) === target)
+      }
+      if (dateMode === 'range' && (rangeStart || rangeEnd)) {
+        const startMs = rangeStart ? new Date(rangeStart).getTime() : null
+        const endMs = rangeEnd ? new Date(rangeEnd).getTime() : null
+        list = list.filter(i => {
+          const itemMs = new Date(dateOnly(i.pledge_date)).getTime()
+          if (startMs !== null && itemMs < startMs) return false
+          if (endMs !== null && itemMs > endMs) return false
+          return true
+        })
+      }
+    }
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       list = list.filter(i =>
@@ -73,7 +95,19 @@ export default function Items() {
       )
     }
     return list
-  }, [items, filter, search, shopFilter])
+  }, [items, filter, search, shopFilter, dateMode, filterDate, rangeStart, rangeEnd, isSuperUser])
+
+  const handleExport = async () => {
+    if (!filtered.length) { toast.error('No items to export'); return }
+    const stamp = new Date().toISOString().split('T')[0]
+    try {
+      const message = await exportItemsToCSV(filtered, `pawn-items-${stamp}.csv`)
+      toast.success(message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export failed'
+      toast.error(message)
+    }
+  }
 
   const shopItems = useMemo(() => {
     return shopFilter ? items.filter(i => (i as any).user_id === shopFilter) : items
@@ -126,6 +160,17 @@ export default function Items() {
           </button>
           <span className="topbar-title">{shopFilter && shopName ? shopName : 'All Items'}</span>
           <div className="topbar-actions">
+            {!isSuperUser && (
+              <motion.button
+                className="btn btn-ghost btn-sm"
+                onClick={handleExport}
+                disabled={!filtered.length}
+                whileTap={{ scale: 0.95 }}
+                style={{ borderRadius: 'var(--radius-full)', padding: '8px 12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Download size={16} /> Export
+              </motion.button>
+            )}
             <motion.button
               className="btn btn-primary btn-sm"
               onClick={() => navigate('/add')}
@@ -152,6 +197,78 @@ export default function Items() {
             placeholder="Search by serial, name, or amount…"
           />
         </div>
+
+        {/* ─── Date filters ─── */}
+        {!isSuperUser && (
+          <div className="card" style={{ marginBottom: 16, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Calendar size={16} color="var(--accent)" />
+              <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Pledge Date Filter
+              </span>
+              <div style={{ marginLeft: 'auto' }}>
+                <button
+                  className={`chip ${dateMode === 'single' ? 'active' : ''}`}
+                  onClick={() => setDateMode('single')}
+                  type="button"
+                >
+                  Single
+                </button>
+                <button
+                  className={`chip ${dateMode === 'range' ? 'active' : ''}`}
+                  onClick={() => setDateMode('range')}
+                  type="button"
+                  style={{ marginLeft: 8 }}
+                >
+                  Range
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => { setFilterDate(''); setRangeStart(''); setRangeEnd('') }}
+                  style={{ marginLeft: 8 }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            {dateMode === 'single' ? (
+              <input
+                className="field-input"
+                style={{ width: '100%' }}
+                type="date"
+                value={filterDate}
+                onChange={e => setFilterDate(e.target.value)}
+              />
+            ) : (
+              <div className="grid-2" style={{ gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                    From
+                  </label>
+                  <input
+                    className="field-input"
+                    style={{ width: '100%' }}
+                    type="date"
+                    value={rangeStart}
+                    onChange={e => setRangeStart(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                    To
+                  </label>
+                  <input
+                    className="field-input"
+                    style={{ width: '100%' }}
+                    type="date"
+                    value={rangeEnd}
+                    onChange={e => setRangeEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ─── Filter chips ─── */}
         <div className="chip-group" style={{ marginBottom: 20 }}>
@@ -213,13 +330,15 @@ export default function Items() {
                         width: 48, height: 48, borderRadius: 'var(--radius-md)', flexShrink: 0, overflow: 'hidden',
                         background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center'
                       }}>
-                        {item.image_url ? (
-                          <img src={item.image_url} alt="" onClick={e => { e.stopPropagation(); setLightboxSrc(item.image_url) }} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} />
-                        ) : (
-                          item.status === 'released'
+                        <ResolvedImage
+                          src={item.image_url}
+                          alt=""
+                          onClick={e => { if (item.image_url) { e.stopPropagation(); setLightboxSrc(item.image_url) } }}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }}
+                          fallback={item.status === 'released'
                             ? <Gem size={20} color="var(--success)" />
-                            : <Package size={20} color="var(--text-muted)" />
-                        )}
+                            : <Package size={20} color="var(--text-muted)" />}
+                        />
                       </div>
 
                       {/* Basic info */}
@@ -262,7 +381,7 @@ export default function Items() {
                             {/* Item image */}
                             {item.image_url && (
                               <div onClick={() => setLightboxSrc(item.image_url)} style={{ marginTop: 14, marginBottom: 14, borderRadius: 'var(--radius-md)', overflow: 'hidden', maxHeight: 220, cursor: 'zoom-in' }}>
-                                <img src={item.image_url} alt="" style={{ width: '100%', objectFit: 'cover' }} />
+                                <ResolvedImage src={item.image_url} alt="" style={{ width: '100%', objectFit: 'cover' }} />
                               </div>
                             )}
 
@@ -294,6 +413,12 @@ export default function Items() {
                                 <span className="detail-key">Amount</span>
                                 <span className="detail-val" style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{Number(item.amount).toLocaleString('en-IN')}</span>
                               </div>
+                              {!isSuperUser && item.weight !== null && item.weight !== undefined && (
+                                <div className="detail-row" style={{ padding: '8px 0' }}>
+                                  <span className="detail-key">Weight</span>
+                                  <span className="detail-val">{Number(item.weight).toLocaleString('en-IN')} g</span>
+                                </div>
+                              )}
                               <div className="detail-row" style={{ padding: '8px 0' }}>
                                 <span className="detail-key">Interest Rate</span>
                                 <span className="detail-val">{item.interest_rate}% / month</span>
@@ -349,4 +474,8 @@ export default function Items() {
       {authModal}
     </>
   )
+}
+
+function dateOnly(value: string) {
+  return value.split('T')[0]
 }

@@ -1,11 +1,16 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
-import type { PawnHistory } from '../types'
+import type { PawnHistory, PawnItem } from '../types'
 
-const CSV_HEADERS = [
+const HISTORY_HEADERS = [
   'serial_number', 'customer_name', 'amount', 'interest_rate',
   'pledge_date', 'release_date', 'total_interest', 'final_amount'
+] as const
+
+const ITEM_HEADERS = [
+  'serial_number', 'customer_name', 'mediator_name', 'item_type',
+  'weight', 'amount', 'interest_rate', 'pledge_date', 'status', 'image_url'
 ] as const
 
 function escapeCsvCell(value: unknown): string {
@@ -27,12 +32,20 @@ function timestampedFilename(filename: string): string {
   return `${safe.slice(0, dot)}-${stamp}${safe.slice(dot)}`
 }
 
-function buildCsv(data: PawnHistory[]): string {
+function buildCsvWithHeaders<T>(data: T[], headers: readonly string[]): string {
   const rows = data.map(row =>
-    CSV_HEADERS.map(h => escapeCsvCell(row[h as keyof PawnHistory])).join(',')
+    headers.map(h => escapeCsvCell((row as Record<string, unknown>)[h])).join(',')
   )
 
-  return [CSV_HEADERS.join(','), ...rows].join('\n')
+  return [headers.join(','), ...rows].join('\n')
+}
+
+function buildHistoryCsv(data: PawnHistory[]): string {
+  return buildCsvWithHeaders(data, HISTORY_HEADERS)
+}
+
+function buildItemsCsv(data: PawnItem[]): string {
+  return buildCsvWithHeaders(data, ITEM_HEADERS)
 }
 
 async function resolveExportDirectory(): Promise<Directory> {
@@ -100,23 +113,39 @@ function downloadCsvOnWeb(csv: string, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+async function exportCsvData(csv: string, filename: string): Promise<string> {
+  const normalizedFilename = toCsvFilename(filename)
+
+  if (Capacitor.isNativePlatform()) {
+    const { uri, location } = await saveCsvOnNative(csv, normalizedFilename)
+    const shared = await shareCsv(uri)
+    if (shared) return 'CSV ready to share'
+    return `CSV saved to ${location} (${uri})`
+  }
+
+  downloadCsvOnWeb(csv, normalizedFilename)
+  return 'CSV download started'
+}
+
 export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.csv'): Promise<string> {
   if (!data.length) return 'No data to export'
 
   try {
     // Add UTF-8 BOM so Excel opens Unicode characters (e.g. rupee sign) correctly.
-    const csv = `\uFEFF${buildCsv(data)}`
-    const normalizedFilename = toCsvFilename(filename)
+    const csv = `\uFEFF${buildHistoryCsv(data)}`
+    return await exportCsvData(csv, filename)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Export failed: ${message}`)
+  }
+}
 
-    if (Capacitor.isNativePlatform()) {
-      const { uri, location } = await saveCsvOnNative(csv, normalizedFilename)
-      const shared = await shareCsv(uri)
-      if (shared) return 'CSV ready to share'
-      return `CSV saved to ${location} (${uri})`
-    }
+export async function exportItemsToCSV(data: PawnItem[], filename = 'pawn-items.csv'): Promise<string> {
+  if (!data.length) return 'No data to export'
 
-    downloadCsvOnWeb(csv, normalizedFilename)
-    return 'CSV download started'
+  try {
+    const csv = `\uFEFF${buildItemsCsv(data)}`
+    return await exportCsvData(csv, filename)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Export failed: ${message}`)

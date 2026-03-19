@@ -6,6 +6,7 @@ export interface PawnItem {
   mediator_name: string | null
   item_type: string | null
   customer_name: string | null
+  weight: number | null
   amount: number
   interest_rate: number
   pledge_date: string
@@ -58,4 +59,4 @@ export interface InterestResult {
   details: CalculationDetails
 }
 
-export type RateOption = 1 | 1.15 | 1.25 | 'custom'
+export type RateOption = 1 | 1.15 | 1.25 | 1.5 | 2 | 3 | 5 | 'custom'
