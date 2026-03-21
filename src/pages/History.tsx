@@ -221,7 +221,7 @@ export default function History() {
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                         <span className="history-amount">{inr(Number(row.final_amount))}</span>
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>{days}d @ {row.interest_rate}%</span>
+                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>{days}d @ ₹{Number(row.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                       <ChevronDown
                         size={16}

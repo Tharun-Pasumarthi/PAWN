@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, CheckCircle, ChevronRight, LayoutGrid, FileText, Scale,
-  Bell, Gem, Package, LogOut, Store
+  Gem, Package, LogOut, Store
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
@@ -97,9 +97,6 @@ export default function Dashboard() {
             )}
           </span>
           <div className="topbar-actions">
-            <button className="topbar-back" style={{ border: 'none' }}>
-              <Bell size={18} />
-            </button>
             <button
               className="topbar-back"
               style={{ border: 'none' }}
@@ -281,7 +278,12 @@ export default function Dashboard() {
                 <p style={{ padding: '20px 0', color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.875rem' }}>No recent activity</p>
               ) : (
                 recent.map(item => (
-                  <div key={item.id} className="activity-item">
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="activity-item activity-item-link"
+                    onClick={() => navigate(`/items?status=${item.status}&item=${item.id}`)}
+                  >
                     <div className="activity-icon">
                       {item.status === 'released' ? <Gem size={18} /> : <Package size={18} />}
                     </div>
@@ -301,7 +303,7 @@ export default function Dashboard() {
                         {item.pledge_date ? (() => { const dt = new Date(item.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })() : ''}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))
               )}
             </div>

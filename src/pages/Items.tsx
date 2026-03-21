@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Search, Plus, Edit3, Trash2, Package, Gem, Loader2,
-  ChevronDown, ChevronUp, Download, Calendar
+  ChevronDown, ChevronUp, Download, Calendar, IndianRupee
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { exportItemsToCSV } from '../services/csvExport'
@@ -12,7 +12,7 @@ import ResolvedImage from '../components/ResolvedImage'
 import ImageLightbox from '../components/ImageLightbox'
 import { useVerifyAuth } from '../hooks/useVerifyAuth'
 import { useAuth } from '../contexts/AuthContext'
-import type { PawnItem } from '../types'
+import type { PawnAllocation, PawnItem, PawnPartPayment } from '../types'
 
 type FilterStatus = 'all' | 'active' | 'released'
 
@@ -20,6 +20,8 @@ export default function Items() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const shopFilter = searchParams.get('shop')
+  const statusParam = searchParams.get('status')
+  const focusItemParam = searchParams.get('item')
   const { user, isSuperUser } = useAuth()
   const { verify, modal: authModal } = useVerifyAuth()
 
@@ -27,7 +29,9 @@ export default function Items() {
   const [shopName, setShopName] = useState('')
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<FilterStatus>('active')
+  const [filter, setFilter] = useState<FilterStatus>(
+    statusParam === 'all' || statusParam === 'active' || statusParam === 'released' ? statusParam : 'active'
+  )
   const [dateMode, setDateMode] = useState<'single' | 'range'>('single')
   const [filterDate, setFilterDate] = useState('')
   const [rangeStart, setRangeStart] = useState('')
@@ -35,6 +39,27 @@ export default function Items() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [itemFinance, setItemFinance] = useState<Record<string, {
+    allocationCount: number
+    allocationPrincipal: number
+    partPaymentTotal: number
+    allocationNames: string[]
+    sourceLoanNames: string[]
+  }>>({})
+
+  const [allocModalItem, setAllocModalItem] = useState<PawnItem | null>(null)
+  const [allocating, setAllocating] = useState(false)
+  const [allocName, setAllocName] = useState('')
+  const [allocAmount, setAllocAmount] = useState('')
+  const [allocRateOption, setAllocRateOption] = useState('1.5')
+  const [allocCustomRate, setAllocCustomRate] = useState('')
+  const [allocDate, setAllocDate] = useState(todayStr())
+
+  const [partModalItem, setPartModalItem] = useState<PawnItem | null>(null)
+  const [parting, setParting] = useState(false)
+  const [partAmount, setPartAmount] = useState('')
+  const [partDate, setPartDate] = useState(todayStr())
+  const [partNote, setPartNote] = useState('')
 
   const fetchItems = async () => {
     try {
@@ -53,6 +78,65 @@ export default function Items() {
 
   useEffect(() => { fetchItems() }, [])
 
+  useEffect(() => {
+    if (!items.length) { setItemFinance({}); return }
+    const ids = items.map(i => i.id)
+    ;(async () => {
+      try {
+        const [{ data: allocations }, { data: partPayments }] = await Promise.all([
+          supabase
+            .from('pawn_allocations')
+            .select('item_id, amount, status, allocated_name')
+            .in('item_id', ids),
+          supabase
+            .from('pawn_part_payments')
+            .select('item_id, amount')
+            .in('item_id', ids)
+        ])
+
+        const finance: Record<string, {
+          allocationCount: number
+          allocationPrincipal: number
+          partPaymentTotal: number
+          allocationNames: string[]
+          sourceLoanNames: string[]
+        }> = {}
+        for (const item of items) {
+          finance[item.id] = {
+            allocationCount: 0,
+            allocationPrincipal: 0,
+            partPaymentTotal: 0,
+            allocationNames: [],
+            sourceLoanNames: []
+          }
+        }
+
+        ;((allocations ?? []) as Array<Pick<PawnAllocation, 'item_id' | 'amount' | 'allocated_name' | 'status'>>).forEach(a => {
+          if (!finance[a.item_id]) return
+          const normalizedName = a.allocated_name.trim()
+          if (normalizedName && !finance[a.item_id].sourceLoanNames.includes(normalizedName)) {
+            finance[a.item_id].sourceLoanNames.push(normalizedName)
+          }
+          if (a.status !== 'active') return
+          finance[a.item_id].allocationCount += 1
+          finance[a.item_id].allocationPrincipal += Number(a.amount)
+          if (normalizedName && !finance[a.item_id].allocationNames.includes(normalizedName)) {
+            finance[a.item_id].allocationNames.push(normalizedName)
+          }
+        })
+
+        ;((partPayments ?? []) as Array<Pick<PawnPartPayment, 'item_id' | 'amount'>>).forEach(p => {
+          if (!finance[p.item_id]) return
+          finance[p.item_id].partPaymentTotal += Number(p.amount)
+        })
+
+        setItemFinance(finance)
+      } catch {
+        // ignore summary errors; core list should still work
+      }
+    })()
+  }, [items])
+
   // Fetch shop name when filtering by shop
   useEffect(() => {
     if (!shopFilter) { setShopName(''); return }
@@ -64,6 +148,12 @@ export default function Items() {
       }
     })()
   }, [shopFilter])
+
+  useEffect(() => {
+    if (statusParam === 'all' || statusParam === 'active' || statusParam === 'released') {
+      setFilter(statusParam)
+    }
+  }, [statusParam])
 
   const filtered = useMemo(() => {
     let list = items
@@ -91,17 +181,30 @@ export default function Items() {
         i.serial_number.toLowerCase().includes(q) ||
         (i.mediator_name ?? '').toLowerCase().includes(q) ||
         (i.customer_name ?? '').toLowerCase().includes(q) ||
+        (itemFinance[i.id]?.sourceLoanNames ?? []).some(name => name.toLowerCase().includes(q)) ||
         String(i.amount).includes(q)
       )
     }
     return list
-  }, [items, filter, search, shopFilter, dateMode, filterDate, rangeStart, rangeEnd, isSuperUser])
+  }, [items, filter, search, shopFilter, dateMode, filterDate, rangeStart, rangeEnd, isSuperUser, itemFinance])
+
+  useEffect(() => {
+    if (!focusItemParam) return
+    const focusedItem = items.find(i => i.id === focusItemParam)
+    if (!focusedItem) return
+    setExpandedId(focusedItem.id)
+  }, [focusItemParam, items])
 
   const handleExport = async () => {
     if (!filtered.length) { toast.error('No items to export'); return }
     const stamp = new Date().toISOString().split('T')[0]
     try {
-      const message = await exportItemsToCSV(filtered, `pawn-items-${stamp}.csv`)
+      const rowsWithPartPayments = filtered.map(item => ({
+        ...item,
+        part_payment_total: Number(itemFinance[item.id]?.partPaymentTotal ?? 0),
+        source_loan_names: (itemFinance[item.id]?.sourceLoanNames ?? []).join(' | ')
+      }))
+      const message = await exportItemsToCSV(rowsWithPartPayments, `pawn-items-${stamp}.csv`)
       toast.success(message)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Export failed'
@@ -151,6 +254,96 @@ export default function Items() {
     }
   }
 
+  const openAllocate = (item: PawnItem) => {
+    if ((itemFinance[item.id]?.allocationCount ?? 0) > 0) {
+      toast.error('Only one source loan is allowed. Use Edit to update it.')
+      return
+    }
+    setAllocModalItem(item)
+    setAllocName('')
+    setAllocAmount('')
+    setAllocRateOption('1.5')
+    setAllocCustomRate('')
+    setAllocDate(todayStr())
+  }
+
+  const openPartPayment = (item: PawnItem) => {
+    setPartModalItem(item)
+    setPartAmount('')
+    setPartDate(todayStr())
+    setPartNote('')
+  }
+
+  const saveAllocation = async () => {
+    if (!allocModalItem) return
+    if (!allocName.trim()) { toast.error('Enter source name'); return }
+    const amount = Number(allocAmount)
+    if (!amount || amount <= 0) { toast.error('Enter a valid source amount'); return }
+    const rate = allocRateOption === 'custom' ? Number(allocCustomRate) : Number(allocRateOption)
+    if (!rate || rate <= 0) { toast.error('Enter a valid source interest'); return }
+    if (!allocDate) { toast.error('Pick source date'); return }
+
+    setAllocating(true)
+    try {
+      const { data: existingAllocations, error: existingError } = await supabase
+        .from('pawn_allocations')
+        .select('id')
+        .eq('item_id', allocModalItem.id)
+        .eq('status', 'active')
+        .limit(1)
+      if (existingError) throw existingError
+      if ((existingAllocations?.length ?? 0) > 0) {
+        toast.error('Only one source loan is allowed. Use Edit to update it.')
+        setAllocModalItem(null)
+        return
+      }
+
+      const { error } = await supabase.from('pawn_allocations').insert([{
+        item_id: allocModalItem.id,
+        allocated_name: allocName.trim(),
+        amount,
+        interest_rate: rate,
+        allocation_date: allocDate,
+        status: 'active'
+      }])
+      if (error) throw error
+
+      toast.success('Source loan added')
+      setAllocModalItem(null)
+      await fetchItems()
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to add source loan')
+    } finally {
+      setAllocating(false)
+    }
+  }
+
+  const savePartPayment = async () => {
+    if (!partModalItem) return
+    const amount = Number(partAmount)
+    if (!amount || amount <= 0) { toast.error('Enter a valid payment amount'); return }
+    if (!partDate) { toast.error('Pick payment date'); return }
+
+    setParting(true)
+    try {
+      const { error } = await supabase.from('pawn_part_payments').insert([{
+        item_id: partModalItem.id,
+        amount,
+        payment_date: partDate,
+        note: partNote.trim() || null
+      }])
+      if (error) throw error
+
+      toast.success('Part payment saved')
+      setPartModalItem(null)
+      await fetchItems()
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to save part payment')
+    } finally {
+      setParting(false)
+    }
+  }
+
   return (
     <>
       <header className="topbar">
@@ -159,7 +352,7 @@ export default function Items() {
             <ArrowLeft size={18} />
           </button>
           <span className="topbar-title">{shopFilter && shopName ? shopName : 'All Items'}</span>
-          <div className="topbar-actions">
+          <div className="topbar-actions items-topbar-actions">
             {!isSuperUser && (
               <motion.button
                 className="btn btn-ghost btn-sm"
@@ -177,7 +370,7 @@ export default function Items() {
               whileTap={{ scale: 0.95 }}
               style={{ borderRadius: 'var(--radius-full)', padding: '8px 16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <Plus size={16} /> Add New
+              <Plus size={16} /> <span className="items-add-label">Add New</span>
             </motion.button>
           </div>
         </div>
@@ -194,19 +387,19 @@ export default function Items() {
             style={{ width: '100%', paddingLeft: 42, fontSize: '0.9375rem' }}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by serial, name, or amount…"
+            placeholder="Search by serial, customer, source loan name, or amount…"
           />
         </div>
 
         {/* ─── Date filters ─── */}
         {!isSuperUser && (
           <div className="card" style={{ marginBottom: 16, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div className="items-filter-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <Calendar size={16} color="var(--accent)" />
               <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Pledge Date Filter
               </span>
-              <div style={{ marginLeft: 'auto' }}>
+              <div className="items-filter-actions" style={{ marginLeft: 'auto' }}>
                 <button
                   className={`chip ${dateMode === 'single' ? 'active' : ''}`}
                   onClick={() => setDateMode('single')}
@@ -306,6 +499,7 @@ export default function Items() {
               {filtered.map((item, idx) => {
                 const isExpanded = expandedId === item.id
                 const isDeleting = deletingId === item.id
+                const hasSourceLoan = (itemFinance[item.id]?.allocationCount ?? 0) > 0
                 return (
                   <motion.div
                     key={item.id}
@@ -350,6 +544,11 @@ export default function Items() {
                           <span className={`badge ${item.status === 'active' ? 'badge-info' : 'badge-success'}`}>
                             {item.status === 'active' ? 'Active' : 'Released'}
                           </span>
+                          {item.status === 'active' && (
+                            (itemFinance[item.id]?.allocationNames?.length ?? 0) > 0
+                              ? <span className="badge badge-gold">{itemFinance[item.id].allocationNames[0]}</span>
+                              : <span className="badge badge-warning">Not Allocated</span>
+                          )}
                         </div>
                         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 2 }}>
                           {item.customer_name || item.mediator_name || '—'} · {(() => { const dt = new Date(item.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}
@@ -420,8 +619,8 @@ export default function Items() {
                                 </div>
                               )}
                               <div className="detail-row" style={{ padding: '8px 0' }}>
-                                <span className="detail-key">Interest Rate</span>
-                                <span className="detail-val">{item.interest_rate}% / month</span>
+                                <span className="detail-key">Interest</span>
+                                <span className="detail-val">₹{Number(item.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                               <div className="detail-row" style={{ padding: '8px 0' }}>
                                 <span className="detail-key">Pledge Date</span>
@@ -433,30 +632,86 @@ export default function Items() {
                                   {item.status === 'active' ? 'Active' : 'Released'}
                                 </span>
                               </div>
+                              {item.status === 'active' && (
+                                <>
+                                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                                    <span className="detail-key">Allocation Status</span>
+                                    <span className="detail-val" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+                                      {(itemFinance[item.id]?.allocationNames?.length ?? 0) === 0
+                                        ? <span className="badge badge-warning">Not Allocated</span>
+                                        : itemFinance[item.id].allocationNames.map(name => (
+                                          <span key={`${item.id}-${name}`} className="badge badge-gold">{name}</span>
+                                        ))}
+                                    </span>
+                                  </div>
+                                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                                    <span className="detail-key">Source Loans</span>
+                                    <span className="detail-val">{itemFinance[item.id]?.allocationCount ?? 0}</span>
+                                  </div>
+                                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                                    <span className="detail-key">Allocated Principal</span>
+                                    <span className="detail-val">₹{Number(itemFinance[item.id]?.allocationPrincipal ?? 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="detail-row" style={{ padding: '8px 0' }}>
+                                    <span className="detail-key">Part Payments</span>
+                                    <span className="detail-val">₹{Number(itemFinance[item.id]?.partPaymentTotal ?? 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                </>
+                              )}
                             </div>
 
                             {/* Action buttons — only for active items */}
                             {item.status === 'active' && (!isSuperUser || item.user_id === user?.id) && (
-                              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                                <motion.button
-                                  className="btn btn-full"
-                                  onClick={() => handleEdit(item)}
-                                  whileTap={{ scale: 0.97 }}
-                                  style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: 'var(--accent)', color: 'white' }}
-                                >
-                                  <Edit3 size={16} /> Edit
-                                </motion.button>
-                                <motion.button
-                                  className="btn btn-full"
-                                  onClick={() => handleDelete(item)}
-                                  disabled={isDeleting}
-                                  whileTap={{ scale: 0.97 }}
-                                  style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: '#ef4444', color: 'white' }}
-                                >
-                                  {isDeleting ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                                  {isDeleting ? 'Deleting…' : 'Delete'}
-                                </motion.button>
-                              </div>
+                              <>
+                                <div className="item-action-row" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                                  <motion.button
+                                    className="btn btn-full"
+                                    onClick={() => handleEdit(item)}
+                                    whileTap={{ scale: 0.97 }}
+                                    style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: 'var(--accent)', color: 'white' }}
+                                  >
+                                    <Edit3 size={16} /> Edit
+                                  </motion.button>
+                                  <motion.button
+                                    className="btn btn-full"
+                                    onClick={() => handleDelete(item)}
+                                    disabled={isDeleting}
+                                    whileTap={{ scale: 0.97 }}
+                                    style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: '#ef4444', color: 'white' }}
+                                  >
+                                    {isDeleting ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                                    {isDeleting ? 'Deleting…' : 'Delete'}
+                                  </motion.button>
+                                </div>
+                                <div className="item-action-row" style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                                  <motion.button
+                                    className="btn btn-full"
+                                    onClick={() => openAllocate(item)}
+                                    disabled={hasSourceLoan}
+                                    whileTap={{ scale: 0.97 }}
+                                    style={{
+                                      flex: 1,
+                                      borderRadius: 'var(--radius-xl)',
+                                      fontSize: '0.875rem',
+                                      fontWeight: 700,
+                                      padding: '12px 16px',
+                                      background: hasSourceLoan ? '#94a3b8' : '#0ea5e9',
+                                      color: 'white',
+                                      opacity: hasSourceLoan ? 0.95 : 1
+                                    }}
+                                  >
+                                    <Plus size={16} /> {hasSourceLoan ? 'Use Edit for Loan' : 'Source Loan'}
+                                  </motion.button>
+                                  <motion.button
+                                    className="btn btn-full"
+                                    onClick={() => openPartPayment(item)}
+                                    whileTap={{ scale: 0.97 }}
+                                    style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: '#7c3aed', color: 'white' }}
+                                  >
+                                    <IndianRupee size={16} /> Part Payment
+                                  </motion.button>
+                                </div>
+                              </>
                             )}
                           </div>
                         </motion.div>
@@ -471,6 +726,61 @@ export default function Items() {
       </main>
 
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+
+      {allocModalItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 520, padding: 16 }}>
+            <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 12, color: 'var(--text-primary)' }}>
+              Add Source Loan for #{allocModalItem.serial_number}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input className="field-input" value={allocName} onChange={e => setAllocName(e.target.value)} placeholder="Source name (shop/person)" />
+              <input className="field-input" type="number" inputMode="decimal" value={allocAmount} onChange={e => setAllocAmount(e.target.value)} placeholder="Source amount" min="0" step="0.01" />
+              <select className="field-input" value={allocRateOption} onChange={e => setAllocRateOption(e.target.value)}>
+                <option value="1">₹1.00</option>
+                <option value="1.5">₹1.50</option>
+                <option value="2">₹2.00</option>
+                <option value="3">₹3.00</option>
+                <option value="5">₹5.00</option>
+                <option value="custom">Custom ₹</option>
+              </select>
+              {allocRateOption === 'custom' && (
+                <input className="field-input" type="number" inputMode="decimal" value={allocCustomRate} onChange={e => setAllocCustomRate(e.target.value)} placeholder="Custom source interest" min="0" step="0.01" />
+              )}
+              <input className="field-input" type="date" value={allocDate} onChange={e => setAllocDate(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setAllocModalItem(null)} disabled={allocating}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={saveAllocation} disabled={allocating}>
+                {allocating ? <Loader2 size={16} className="spin" /> : null}
+                {allocating ? 'Saving…' : 'Save Source Loan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {partModalItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 520, padding: 16 }}>
+            <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 12, color: 'var(--text-primary)' }}>
+              Part Payment for #{partModalItem.serial_number}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input className="field-input" type="number" inputMode="decimal" value={partAmount} onChange={e => setPartAmount(e.target.value)} placeholder="Enter amount" min="0" step="0.01" />
+              <input className="field-input" type="date" value={partDate} onChange={e => setPartDate(e.target.value)} />
+              <input className="field-input" value={partNote} onChange={e => setPartNote(e.target.value)} placeholder="Note (optional)" />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setPartModalItem(null)} disabled={parting}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={savePartPayment} disabled={parting}>
+                {parting ? <Loader2 size={16} className="spin" /> : null}
+                {parting ? 'Saving…' : 'Save Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {authModal}
     </>
   )
@@ -478,4 +788,8 @@ export default function Items() {
 
 function dateOnly(value: string) {
   return value.split('T')[0]
+}
+
+function todayStr() {
+  return new Date().toISOString().split('T')[0]
 }

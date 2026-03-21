@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -6,11 +6,11 @@ import {
   ArrowLeft, Search, Loader2, ChevronDown, ChevronUp, AlertCircle, Check, Calendar, Package
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
-import { calculatePawnInterest, getRateLabel, isTwoPhase } from '../services/interestCalculator'
+import { calculatePawnInterest, isTwoPhase } from '../services/interestCalculator'
 import ImageLightbox from '../components/ImageLightbox'
 import ResolvedImage from '../components/ResolvedImage'
 import { useAuth } from '../contexts/AuthContext'
-import type { PawnItem, InterestResult } from '../types'
+import type { PawnAllocation, PawnItem, PawnPartPayment, InterestResult } from '../types'
 
 export default function ReleaseItem() {
   const navigate = useNavigate()
@@ -19,6 +19,8 @@ export default function ReleaseItem() {
   const [allItems, setAllItems] = useState<PawnItem[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
   const [filterText, setFilterText] = useState('')
+  const [allocations, setAllocations] = useState<PawnAllocation[]>([])
+  const [partPayments, setPartPayments] = useState<PawnPartPayment[]>([])
 
   const [serial, setSerial] = useState('')
   const [item, setItem] = useState<PawnItem | null>(null)
@@ -41,8 +43,33 @@ export default function ReleaseItem() {
   const [calc, setCalc] = useState<InterestResult | null>(null)
   const [showPhases, setShowPhases] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [removingAllocationId, setRemovingAllocationId] = useState<string | null>(null)
 
   const rateOptions = isSuperUser ? SUPER_RATES : NORMAL_RATES
+
+  const loadItemExtras = async (itemId: string) => {
+    try {
+      const [{ data: allocRows }, { data: partRows }] = await Promise.all([
+        supabase
+          .from('pawn_allocations')
+          .select('*')
+          .eq('item_id', itemId)
+          .eq('status', 'active')
+          .order('allocation_date', { ascending: true }),
+        supabase
+          .from('pawn_part_payments')
+          .select('*')
+          .eq('item_id', itemId)
+          .order('payment_date', { ascending: true })
+      ])
+
+      setAllocations((allocRows ?? []) as PawnAllocation[])
+      setPartPayments((partRows ?? []) as PawnPartPayment[])
+    } catch {
+      setAllocations([])
+      setPartPayments([])
+    }
+  }
 
   // Fetch all active items on mount
   useEffect(() => {
@@ -73,8 +100,11 @@ export default function ReleaseItem() {
 
   const selectItem = (picked: PawnItem) => {
     setItem(picked)
+    setAllocations([])
+    setPartPayments([])
     setSerial(picked.serial_number)
     setCalc(null)
+    loadItemExtras(picked.id)
     const mandatoryPhase = isTwoPhase(picked.pledge_date, releaseDate, picked.mediator_name)
     const baseRates = (isSuperUser ? SUPER_BASE_RATES : NORMAL_BASE_RATES) as readonly string[]
     if (mandatoryPhase) {
@@ -113,6 +143,9 @@ export default function ReleaseItem() {
       if (error) throw error
       if (!data) { toast.error('Item not found or already released'); return }
       setItem(data as PawnItem)
+      setAllocations([])
+      setPartPayments([])
+      loadItemExtras((data as PawnItem).id)
       const mandatoryPhase = isTwoPhase(data.pledge_date, releaseDate, (data as PawnItem).mediator_name)
       const baseRates = (isSuperUser ? SUPER_BASE_RATES : NORMAL_BASE_RATES) as readonly string[]
       if (mandatoryPhase) {
@@ -154,6 +187,48 @@ export default function ReleaseItem() {
     return Number(opt)
   }
 
+  const computeBaseCalculation = (
+    it: PawnItem | null = item,
+    rOpt: string = rateOption,
+    cRate: string = customRate,
+    rDate: string = releaseDate,
+    pr1: string = p1Rate,
+    pc1: string = p1Custom,
+    pr2: string = p2Rate,
+    pc2: string = p2Custom,
+    phaseToggle: boolean = usePhaseCalculator,
+    boundary: string = phaseBoundaryDate
+  ): InterestResult | null => {
+    if (!it) return null
+    const mandatoryPhase = isTwoPhase(it.pledge_date, rDate, it.mediator_name)
+    const eligibleNow = daysBetweenStr(it.pledge_date, rDate) >= 2 || mandatoryPhase
+    const isTwo = mandatoryPhase || (phaseToggle && eligibleNow)
+
+    if (isTwo) {
+      const r1 = resolveRate(pr1, pc1)
+      const r2 = resolveRate(pr2, pc2)
+      if (!r1 || !r2) return null
+      try {
+        return calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2, it.mediator_name, isTwo, boundary)
+      } catch (err: any) {
+        toast.error(err.message)
+        return null
+      }
+    } else {
+      let rate = Number(rOpt)
+      if (rOpt === 'custom') {
+        rate = Number(cRate)
+        if (!rate || rate <= 0) return null
+      }
+      try {
+        return calculatePawnInterest(it.amount, it.pledge_date, rDate, rate, undefined, undefined, it.mediator_name)
+      } catch (err: any) {
+        toast.error(err.message)
+        return null
+      }
+    }
+  }
+
   const recalculate = (
     it: PawnItem | null = item,
     rOpt: string = rateOption,
@@ -166,29 +241,152 @@ export default function ReleaseItem() {
     phaseToggle: boolean = usePhaseCalculator,
     boundary: string = phaseBoundaryDate
   ) => {
-    if (!it) return
-    const mandatoryPhase = isTwoPhase(it.pledge_date, rDate, it.mediator_name)
-    const eligibleNow = daysBetweenStr(it.pledge_date, rDate) >= 2 || mandatoryPhase
-    const isTwo = mandatoryPhase || (phaseToggle && eligibleNow)
-
-    if (isTwo) {
-      const r1 = resolveRate(pr1, pc1)
-      const r2 = resolveRate(pr2, pc2)
-      if (!r1 || !r2) { setCalc(null); return }
-      try {
-        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, 1, r1, r2, it.mediator_name, isTwo, boundary))
-      } catch (err: any) { toast.error(err.message); setCalc(null) }
-    } else {
-      let rate = Number(rOpt)
-      if (rOpt === 'custom') {
-        rate = Number(cRate)
-        if (!rate || rate <= 0) { setCalc(null); return }
-      }
-      try {
-        setCalc(calculatePawnInterest(it.amount, it.pledge_date, rDate, rate, undefined, undefined, it.mediator_name))
-      } catch (err: any) { toast.error(err.message); setCalc(null) }
-    }
+    const next = computeBaseCalculation(it, rOpt, cRate, rDate, pr1, pc1, pr2, pc2, phaseToggle, boundary)
+    setCalc(next)
   }
+
+  const allocationBreakdown = useMemo(() => {
+    if (!item) return [] as Array<{
+      allocation: PawnAllocation
+      interest: number
+      finalAmount: number
+      effectiveDays: number
+    }>
+
+    return allocations
+      .filter(a => new Date(a.allocation_date).getTime() <= new Date(releaseDate).getTime())
+      .map(a => {
+        const allocCalc = computeBaseCalculation(
+          {
+            ...item,
+            amount: Number(a.amount),
+            pledge_date: a.allocation_date,
+            interest_rate: Number(a.interest_rate)
+          },
+          String(a.interest_rate),
+          '',
+          releaseDate,
+          p1Rate,
+          p1Custom,
+          p2Rate,
+          p2Custom,
+          false,
+          phaseBoundaryDate
+        )
+
+        return {
+          allocation: a,
+          interest: allocCalc?.totalInterest ?? 0,
+          finalAmount: allocCalc?.finalAmount ?? Number(a.amount),
+          effectiveDays: allocCalc?.details.effectiveDays ?? daysBetweenStr(a.allocation_date, releaseDate)
+        }
+      })
+  }, [item, allocations, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, phaseBoundaryDate])
+
+  const allocationBreakdownById = useMemo(() => {
+    return new Map(allocationBreakdown.map(row => [row.allocation.id, row]))
+  }, [allocationBreakdown])
+
+  const releaseTotals = useMemo(() => {
+    if (!item || !calc) {
+      return {
+        allocationCount: 0,
+        allocationPrincipal: 0,
+        allocationInterest: 0,
+        allocationFinal: 0,
+        partPaymentTotal: 0,
+        partPaymentAppliedToBase: 0,
+        postPaymentInterest: 0,
+        baseInterest: calc?.totalInterest ?? 0,
+        baseFinalAfterPartPayments: calc?.finalAmount ?? 0,
+        finalToCollect: calc?.finalAmount ?? 0,
+        selectedAllocationIds: [] as string[]
+      }
+    }
+
+    const selectedAllocations = allocationBreakdown.map(row => row.allocation)
+    const allocationPrincipal = allocationBreakdown.reduce((sum, row) => sum + Number(row.allocation.amount), 0)
+    const allocationInterest = allocationBreakdown.reduce((sum, row) => sum + row.interest, 0)
+    const allocationFinal = allocationBreakdown.reduce((sum, row) => sum + row.finalAmount, 0)
+
+    const eligiblePartPayments = partPayments
+      .filter(p => new Date(p.payment_date).getTime() <= new Date(releaseDate).getTime())
+      .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+
+    const partPaymentTotal = eligiblePartPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+
+    let baseFinalAfterPartPayments = calc.finalAmount
+    let postPaymentInterest = 0
+    let baseDueBeforePartPayments = calc.finalAmount
+
+    if (eligiblePartPayments.length) {
+      const lastPaymentDate = eligiblePartPayments[eligiblePartPayments.length - 1].payment_date
+      const paidTillLast = eligiblePartPayments
+        .filter(p => new Date(p.payment_date).getTime() <= new Date(lastPaymentDate).getTime())
+        .reduce((sum, p) => sum + Number(p.amount), 0)
+
+      const baseAtLastPayment = computeBaseCalculation(
+        item,
+        rateOption,
+        customRate,
+        lastPaymentDate,
+        p1Rate,
+        p1Custom,
+        p2Rate,
+        p2Custom,
+        usePhaseCalculator,
+        phaseBoundaryDate
+      )
+      const dueAtLastPayment = baseAtLastPayment?.finalAmount ?? 0
+      baseDueBeforePartPayments = dueAtLastPayment
+      const remainingBaseAtLast = Math.max(0, dueAtLastPayment - paidTillLast)
+
+      const continuationRate = resolveRate(twoPhase ? p2Rate : rateOption, twoPhase ? p2Custom : customRate) ?? 1.5
+      if (remainingBaseAtLast > 0 && new Date(releaseDate).getTime() > new Date(lastPaymentDate).getTime()) {
+        const continuation = calculatePawnInterest(remainingBaseAtLast, lastPaymentDate, releaseDate, continuationRate)
+        postPaymentInterest = continuation.totalInterest
+        baseFinalAfterPartPayments = continuation.finalAmount
+      } else {
+        baseFinalAfterPartPayments = remainingBaseAtLast
+      }
+    }
+
+    const partPaymentAppliedToBase = Math.min(partPaymentTotal, baseDueBeforePartPayments)
+    const baseInterest = Math.max(
+      0,
+      baseFinalAfterPartPayments + partPaymentAppliedToBase - Number(item.amount)
+    )
+    const finalToCollect = baseFinalAfterPartPayments
+
+    return {
+      allocationCount: selectedAllocations.length,
+      allocationPrincipal,
+      allocationInterest,
+      allocationFinal,
+      partPaymentTotal,
+      partPaymentAppliedToBase,
+      postPaymentInterest,
+      baseInterest,
+      baseFinalAfterPartPayments,
+      finalToCollect,
+      selectedAllocationIds: selectedAllocations.map(a => a.id)
+    }
+  }, [
+    item,
+    calc,
+    allocationBreakdown,
+    partPayments,
+    releaseDate,
+    rateOption,
+    customRate,
+    p1Rate,
+    p1Custom,
+    p2Rate,
+    p2Custom,
+    usePhaseCalculator,
+    phaseBoundaryDate,
+    twoPhase
+  ])
 
   const onRateChange = (v: string) => { setRateOption(v); recalculate(item, v, customRate, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, usePhaseCalculator, phaseBoundaryDate) }
   const onCustomChange = (v: string) => { setCustomRate(v); recalculate(item, 'custom', v, releaseDate, p1Rate, p1Custom, p2Rate, p2Custom, usePhaseCalculator, phaseBoundaryDate) }
@@ -216,6 +414,27 @@ export default function ReleaseItem() {
     }
   }
 
+  const handleRemoveAllocation = async (allocation: PawnAllocation) => {
+    if (!item) return
+    if (!window.confirm(`Remove source loan from ${allocation.allocated_name}?`)) return
+
+    setRemovingAllocationId(allocation.id)
+    try {
+      const { error } = await supabase
+        .from('pawn_allocations')
+        .update({ status: 'released', released_at: todayStr() })
+        .eq('id', allocation.id)
+      if (error) throw error
+
+      setAllocations(prev => prev.filter(a => a.id !== allocation.id))
+      toast.success('marked as unallocated')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to remove allocation')
+    } finally {
+      setRemovingAllocationId(null)
+    }
+  }
+
   const handleRelease = async () => {
     if (!item || !calc) return
 
@@ -235,15 +454,18 @@ export default function ReleaseItem() {
       let historyRate = Number(rateOption)
       if (rateOption === 'custom') historyRate = Number(customRate)
 
+      const combinedInterest = releaseTotals.baseInterest
+      const historyPrincipal = Number(item.amount)
+
       const { error: hErr } = await supabase.from('pawn_history').insert([{
         serial_number: item.serial_number,
         customer_name: item.customer_name ?? null,
-        amount: item.amount,
+        amount: historyPrincipal,
         interest_rate: historyRate,
         pledge_date: item.pledge_date,
         release_date: releaseDate,
-        total_interest: calc.totalInterest,
-        final_amount: calc.finalAmount,
+        total_interest: combinedInterest,
+        final_amount: releaseTotals.finalToCollect,
         image_url: item.image_url
       }])
       if (hErr) throw hErr
@@ -253,6 +475,14 @@ export default function ReleaseItem() {
         .update({ status: 'released' })
         .eq('id', item.id)
       if (uErr) throw uErr
+
+      if (releaseTotals.selectedAllocationIds.length > 0) {
+        const { error: aErr } = await supabase
+          .from('pawn_allocations')
+          .update({ status: 'released', released_at: releaseDate })
+          .in('id', releaseTotals.selectedAllocationIds)
+        if (aErr) throw aErr
+      }
 
       toast.success('Item released successfully!')
       navigate('/')
@@ -305,7 +535,14 @@ export default function ReleaseItem() {
               {item && (
                 <button
                   className="btn"
-                  onClick={() => { setItem(null); setCalc(null); setSerial(''); setFilterText('') }}
+                  onClick={() => {
+                    setItem(null)
+                    setCalc(null)
+                    setSerial('')
+                    setFilterText('')
+                    setAllocations([])
+                    setPartPayments([])
+                  }}
                   style={{ borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem' }}
                 >
                   Back
@@ -400,7 +637,7 @@ export default function ReleaseItem() {
                           ₹{Number(itm.amount).toLocaleString('en-IN')}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                          {itm.interest_rate}%
+                          ₹{Number(itm.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       </div>
                     </motion.div>
@@ -441,6 +678,21 @@ export default function ReleaseItem() {
                       <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                         Pledge Date: {formatDate(item.pledge_date)}
                       </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        {allocations.length === 0 ? (
+                          <span className="badge badge-warning">Not Allocated</span>
+                        ) : (
+                          allocations.map(a => (
+                            <span key={a.id} className="badge badge-info">{a.allocated_name}</span>
+                          ))
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        Active Source Loans: {allocations.length}
+                      </div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                        Part Payments: {partPayments.length}
+                      </div>
                     </div>
                     {item.image_url && (
                       <div style={{ width: 80, height: 80, borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-subtle)' }}>
@@ -460,6 +712,79 @@ export default function ReleaseItem() {
                   <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 16 }}>
                     Interest Calculation
                   </div>
+
+                  {allocations.length > 0 && (
+                    <div style={{ marginBottom: 16, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 700, marginBottom: 8 }}>
+                        Source Loans
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {allocations.map(a => {
+                          const sourceBreakdown = allocationBreakdownById.get(a.id)
+                          return (
+                            <div
+                              key={a.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                padding: '10px 12px',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--border-subtle)',
+                                background: 'var(--bg-elevated)'
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span className="badge badge-info">{a.allocated_name}</span>
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    {formatDate(a.allocation_date)} · ₹{Number(a.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                  ₹{Number(a.amount).toLocaleString('en-IN')} principal
+                                </div>
+                                {sourceBreakdown ? (
+                                  <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    Interest: ₹{sourceBreakdown.interest.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Due: ₹{sourceBreakdown.finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {sourceBreakdown.effectiveDays} days
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    Not counted for this release date.
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                type="button"
+                                onClick={() => handleRemoveAllocation(a)}
+                                disabled={removingAllocationId === a.id}
+                              >
+                                {removingAllocationId === a.id ? <Loader2 size={14} className="spin" /> : 'Remove'}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {allocations.length === 0 && (
+                    <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                      <span className="badge badge-warning">Unallocated</span>
+                    </div>
+                  )}
+
+                  {partPayments.length > 0 && (
+                    <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                        Part Payments Applied: ₹{releaseTotals.partPaymentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Part payments reduce only base pledge dues. Source loan dues are not reduced.
+                      </div>
+                    </div>
+                  )}
 
                   {phaseEligible && (
                     <div style={{ marginBottom: 16 }}>
@@ -508,7 +833,7 @@ export default function ReleaseItem() {
                       {/* Phase 1 Rate */}
                       <div style={{ marginBottom: 16 }}>
                         <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' }}>
-                          Phase 1 Rate — Before {formatDate(phaseBoundaryDate)}
+                          Phase 1 Interest — Before {formatDate(phaseBoundaryDate)}
                         </label>
                         <div className="chip-group">
                           {rateOptions.map(r => (
@@ -519,13 +844,13 @@ export default function ReleaseItem() {
                         </div>
                         {p1Rate === 'custom' && (
                           <motion.input className="field-input" style={{ width: '100%', marginTop: 8 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                            type="number" inputMode="decimal" value={p1Custom} onChange={e => onP1Custom(e.target.value)} placeholder="Custom rate" step="0.01" />
+                            type="number" inputMode="decimal" value={p1Custom} onChange={e => onP1Custom(e.target.value)} placeholder="Custom interest" step="0.01" />
                         )}
                       </div>
                       {/* Phase 2 Rate */}
                       <div style={{ marginBottom: 20 }}>
                         <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' }}>
-                          Phase 2 Rate — From {formatDate(phaseBoundaryDate)}
+                          Phase 2 Interest — From {formatDate(phaseBoundaryDate)}
                         </label>
                         <div className="chip-group">
                           {rateOptions.map(r => (
@@ -536,14 +861,14 @@ export default function ReleaseItem() {
                         </div>
                         {p2Rate === 'custom' && (
                           <motion.input className="field-input" style={{ width: '100%', marginTop: 8 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                            type="number" inputMode="decimal" value={p2Custom} onChange={e => onP2Custom(e.target.value)} placeholder="Custom rate" step="0.01" />
+                            type="number" inputMode="decimal" value={p2Custom} onChange={e => onP2Custom(e.target.value)} placeholder="Custom interest" step="0.01" />
                         )}
                       </div>
                     </>
                   ) : (
                     <div style={{ marginBottom: 20 }}>
                       <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 8, display: 'block' }}>
-                        Interest Rate (%)
+                        Interest
                       </label>
                       <div className="chip-group">
                         {rateOptions.map(r => (
@@ -554,7 +879,7 @@ export default function ReleaseItem() {
                       </div>
                       {rateOption === 'custom' && (
                         <motion.input className="field-input" style={{ width: '100%', marginTop: 10 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                          type="number" inputMode="decimal" value={customRate} onChange={e => onCustomChange(e.target.value)} placeholder="Custom rate" step="0.01" />
+                          type="number" inputMode="decimal" value={customRate} onChange={e => onCustomChange(e.target.value)} placeholder="Custom interest" step="0.01" />
                       )}
                     </div>
                   )}
@@ -592,8 +917,29 @@ export default function ReleaseItem() {
                         </div>
                         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
                           <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Total Interest</div>
-                          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>₹{calc.totalInterest.toLocaleString('en-IN')}</div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>₹{releaseTotals.baseInterest.toLocaleString('en-IN')}</div>
                         </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div className="detail-row" style={{ padding: '4px 0' }}>
+                          <span className="detail-key">Base Interest</span>
+                          <span className="detail-val">₹{releaseTotals.baseInterest.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="detail-row" style={{ padding: '4px 0' }}>
+                          <span className="detail-key">Part Payment Deduction (Base Only)</span>
+                          <span className="detail-val">- ₹{releaseTotals.partPaymentAppliedToBase.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="detail-row" style={{ padding: '4px 0' }}>
+                          <span className="detail-key">Base Due After Part Payments</span>
+                          <span className="detail-val">₹{releaseTotals.baseFinalAfterPartPayments.toLocaleString('en-IN')}</span>
+                        </div>
+                        {releaseTotals.postPaymentInterest > 0 && (
+                          <div className="detail-row" style={{ padding: '4px 0' }}>
+                            <span className="detail-key">Interest After Last Part Payment</span>
+                            <span className="detail-val">₹{releaseTotals.postPaymentInterest.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Phase expander */}
@@ -628,7 +974,7 @@ export default function ReleaseItem() {
                                     </div>
                                     <div className="detail-row" style={{ padding: '4px 0' }}>
                                       <span className="detail-key">Rate</span>
-                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>{p.rate} ({p.yearlyPercentage})</span>
+                                      <span className="detail-val" style={{ fontSize: '0.8125rem' }}>₹{Number(p.rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                     <div className="detail-row" style={{ padding: '4px 0' }}>
                                       <span className="detail-key">Interest</span>
@@ -651,7 +997,7 @@ export default function ReleaseItem() {
                           Final Amount to Collect
                         </div>
                         <div style={{ fontSize: '2.25rem', fontWeight: 900, color: 'var(--accent)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
-                          ₹{calc.finalAmount.toLocaleString('en-IN')}
+                          ₹{releaseTotals.finalToCollect.toLocaleString('en-IN')}
                         </div>
                       </div>
                     </>
@@ -688,18 +1034,18 @@ const SUPER_BASE_RATES = ['1', '1.15', '1.25'] as const
 const NORMAL_BASE_RATES = ['1.5', '2', '3', '5'] as const
 
 const SUPER_RATES = [
-  { value: '1', label: '1.0%' },
-  { value: '1.15', label: '1.15%' },
-  { value: '1.25', label: '1.25%' },
-  { value: 'custom', label: 'Custom' }
+  { value: '1', label: '₹1.00' },
+  { value: '1.15', label: '₹1.15' },
+  { value: '1.25', label: '₹1.25' },
+  { value: 'custom', label: 'Custom ₹' }
 ]
 
 const NORMAL_RATES = [
-  { value: '1.5', label: '1.5%' },
-  { value: '2', label: '2%' },
-  { value: '3', label: '3%' },
-  { value: '5', label: '5%' },
-  { value: 'custom', label: 'Custom' }
+  { value: '1.5', label: '₹1.50' },
+  { value: '2', label: '₹2.00' },
+  { value: '3', label: '₹3.00' },
+  { value: '5', label: '₹5.00' },
+  { value: 'custom', label: 'Custom ₹' }
 ]
 
 function todayStr() { return new Date().toISOString().split('T')[0] }

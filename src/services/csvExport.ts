@@ -4,13 +4,14 @@ import { Share } from '@capacitor/share'
 import type { PawnHistory, PawnItem } from '../types'
 
 const HISTORY_HEADERS = [
-  'serial_number', 'customer_name', 'amount', 'interest_rate',
-  'pledge_date', 'release_date', 'total_interest', 'final_amount'
+  'id', 'serial_number', 'customer_name', 'amount', 'interest_rate',
+  'pledge_date', 'release_date', 'total_interest', 'final_amount', 'created_at'
 ] as const
 
 const ITEM_HEADERS = [
-  'serial_number', 'customer_name', 'mediator_name', 'item_type',
-  'weight', 'amount', 'interest_rate', 'pledge_date', 'status', 'image_url'
+  'id', 'user_id', 'serial_number', 'mediator', 'mediator_name', 'item_type',
+  'customer_name', 'weight', 'amount', 'interest_rate', 'part_payment_total', 'source_loan_names', 'pledge_date',
+  'status', 'created_at', 'updated_at'
 ] as const
 
 function escapeCsvCell(value: unknown): string {
@@ -41,11 +42,28 @@ function buildCsvWithHeaders<T>(data: T[], headers: readonly string[]): string {
 }
 
 function buildHistoryCsv(data: PawnHistory[]): string {
-  return buildCsvWithHeaders(data, HISTORY_HEADERS)
+  const rows = data.map(row => ({
+    ...row,
+    interest_rate: formatAsCurrency(row.interest_rate)
+  }))
+  return buildCsvWithHeaders(rows, HISTORY_HEADERS)
 }
 
-function buildItemsCsv(data: PawnItem[]): string {
-  return buildCsvWithHeaders(data, ITEM_HEADERS)
+type PawnItemCsvRow = PawnItem & { part_payment_total?: number; source_loan_names?: string }
+
+function buildItemsCsv(data: PawnItemCsvRow[]): string {
+  const rows = data.map(row => ({
+    ...row,
+    interest_rate: formatAsCurrency(row.interest_rate),
+    part_payment_total: formatAsCurrency(row.part_payment_total ?? 0)
+  }))
+  return buildCsvWithHeaders(rows, ITEM_HEADERS)
+}
+
+function formatAsCurrency(value: number | string | null | undefined): string {
+  const numeric = Number(value ?? 0)
+  if (!Number.isFinite(numeric)) return ''
+  return `₹${numeric.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 async function resolveExportDirectory(): Promise<Directory> {
@@ -140,7 +158,7 @@ export async function exportToCSV(data: PawnHistory[], filename = 'pawn-history.
   }
 }
 
-export async function exportItemsToCSV(data: PawnItem[], filename = 'pawn-items.csv'): Promise<string> {
+export async function exportItemsToCSV(data: PawnItemCsvRow[], filename = 'pawn-items.csv'): Promise<string> {
   if (!data.length) return 'No data to export'
 
   try {

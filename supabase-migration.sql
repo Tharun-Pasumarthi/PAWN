@@ -2,7 +2,6 @@
 -- PawnVault Multi-Tenant Migration
 -- Run this in your Supabase SQL Editor (Dashboard → SQL Editor)
 -- ══════════════════════════════════════════════════════════════
---
 -- HOW PHONE LOGIN WORKS:
 --   Each shop is a Supabase auth user.
 --   Phone number is stored in user_metadata → phone.
@@ -193,7 +192,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-
 -- ══════════════════════════════════════════════════════════════
 -- STEP 3 — Add user_id columns (safe to re-run)
 -- ══════════════════════════════════════════════════════════════
@@ -308,6 +306,113 @@ CREATE POLICY "shop_history_select" ON pawn_history
 -- ════════════════════════════════════════════════════════════════
 
 ALTER TABLE pawn_items ADD COLUMN IF NOT EXISTS weight numeric;
+
+
+-- ════════════════════════════════════════════════════════════════
+-- PART 10 — ALLOCATIONS + PART PAYMENTS
+-- ════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS pawn_allocations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id uuid NOT NULL REFERENCES pawn_items(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users,
+  allocated_name text NOT NULL,
+  amount numeric NOT NULL CHECK (amount > 0),
+  interest_rate numeric NOT NULL CHECK (interest_rate > 0),
+  allocation_date date NOT NULL DEFAULT (now()::date),
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released')),
+  released_at date,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pawn_part_payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id uuid NOT NULL REFERENCES pawn_items(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users,
+  amount numeric NOT NULL CHECK (amount > 0),
+  payment_date date NOT NULL DEFAULT (now()::date),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS update_pawn_allocations_updated_at ON pawn_allocations;
+CREATE TRIGGER update_pawn_allocations_updated_at
+BEFORE UPDATE ON pawn_allocations
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE pawn_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pawn_part_payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "shop_allocations_select" ON pawn_allocations;
+DROP POLICY IF EXISTS "shop_allocations_insert" ON pawn_allocations;
+DROP POLICY IF EXISTS "shop_allocations_update" ON pawn_allocations;
+DROP POLICY IF EXISTS "shop_allocations_delete" ON pawn_allocations;
+
+DROP POLICY IF EXISTS "shop_part_payments_select" ON pawn_part_payments;
+DROP POLICY IF EXISTS "shop_part_payments_insert" ON pawn_part_payments;
+DROP POLICY IF EXISTS "shop_part_payments_update" ON pawn_part_payments;
+DROP POLICY IF EXISTS "shop_part_payments_delete" ON pawn_part_payments;
+
+CREATE POLICY "shop_allocations_select" ON pawn_allocations
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_allocations_insert" ON pawn_allocations
+  FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_allocations_update" ON pawn_allocations
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_allocations_delete" ON pawn_allocations
+  FOR DELETE USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_part_payments_select" ON pawn_part_payments
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_part_payments_insert" ON pawn_part_payments
+  FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_part_payments_update" ON pawn_part_payments
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
+
+CREATE POLICY "shop_part_payments_delete" ON pawn_part_payments
+  FOR DELETE USING (
+    user_id = auth.uid()
+    OR auth.uid() = '3d2487eb-ee60-4f68-a153-0150b0e90578'::uuid
+  );
 
 
 -- ══════════════════════════════════════════════════════════════

@@ -22,7 +22,7 @@ import BottomNav from './components/BottomNav'
 import { Loader2 } from 'lucide-react'
 
 function AppRoutes() {
-  const { user, loading, isSuperUser } = useAuth()
+  const { user, loading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const isOnline = useOnlineStatus()
@@ -41,7 +41,7 @@ function AppRoutes() {
   }, [location.pathname, navigate])
 
   useEffect(() => {
-    if (!user || !isOnline || isSuperUser) return
+    if (!user || !isOnline) return
 
     let cancelled = false
     syncPendingPledges().then(({ synced, failed }) => {
@@ -50,7 +50,7 @@ function AppRoutes() {
       if (failed > 0) toast.error(`${failed} offline pledge(s) still pending`)
     })
     return () => { cancelled = true }
-  }, [user, isOnline, isSuperUser])
+  }, [user, isOnline])
 
   if (loading) {
     return (

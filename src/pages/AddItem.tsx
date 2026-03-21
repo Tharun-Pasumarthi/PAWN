@@ -28,6 +28,7 @@ import {
   setNativeImageFolderName,
   setWebImageSubdirName
 } from '../services/localImageStore'
+import type { PawnAllocation } from '../types'
 
 const MEDIATORS = ['Jagadesh', 'Murali', 'Others'] as const
 type MediatorOption = typeof MEDIATORS[number]
@@ -36,18 +37,18 @@ const SUPER_RATE_VALUES = ['1', '1.15', '1.25'] as const
 const NORMAL_RATE_VALUES = ['1.5', '2', '3', '5'] as const
 
 const SUPER_RATE_OPTIONS = [
-  { value: '1', label: '1% Monthly (12% Yearly)' },
-  { value: '1.15', label: '1.15% Monthly (13.8% Yearly)' },
-  { value: '1.25', label: '1.25% Monthly (15% Yearly)' },
-  { value: 'custom', label: 'Custom Rate' },
+  { value: '1', label: '₹1.00 Monthly (₹12.00 Yearly)' },
+  { value: '1.15', label: '₹1.15 Monthly (₹13.80 Yearly)' },
+  { value: '1.25', label: '₹1.25 Monthly (₹15.00 Yearly)' },
+  { value: 'custom', label: 'Custom ₹ Rate' },
 ] as const
 
 const NORMAL_RATE_OPTIONS = [
-  { value: '1.5', label: '1.5% Monthly (18% Yearly)' },
-  { value: '2', label: '2% Monthly (24% Yearly)' },
-  { value: '3', label: '3% Monthly (36% Yearly)' },
-  { value: '5', label: '5% Monthly (60% Yearly)' },
-  { value: 'custom', label: 'Custom Rate' },
+  { value: '1.5', label: '₹1.50 Monthly (₹18.00 Yearly)' },
+  { value: '2', label: '₹2.00 Monthly (₹24.00 Yearly)' },
+  { value: '3', label: '₹3.00 Monthly (₹36.00 Yearly)' },
+  { value: '5', label: '₹5.00 Monthly (₹60.00 Yearly)' },
+  { value: 'custom', label: 'Custom ₹ Rate' },
 ] as const
 
 const IMAGE_TARGET_BYTES = 200 * 1024
@@ -91,6 +92,8 @@ export default function AddItem() {
   const [savedItem, setSavedItem] = useState<{ id: string; serial_number: string; amount: number; pledge_date: string; interest_rate: number; mediator_name: string; image_url: string | null; customer_name?: string; item_type?: string; weight?: number | null } | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [queuedOffline, setQueuedOffline] = useState(false)
+  const [editSourceLoan, setEditSourceLoan] = useState<Pick<PawnAllocation, 'id' | 'allocated_name'> | null>(null)
+  const [editSourceLoanName, setEditSourceLoanName] = useState('')
 
   const [serial, setSerial] = useState('')
   const [serialPrefix, setSerialPrefix] = useState('')
@@ -167,6 +170,18 @@ export default function AddItem() {
         if (data.item_type) setItemType(data.item_type as 'Gold' | 'Silver' | 'Other')
         if (data.customer_name) setCustomerName(data.customer_name)
 
+        const { data: allocationRows } = await supabase
+          .from('pawn_allocations')
+          .select('id, allocated_name')
+          .eq('item_id', data.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        const activeSourceLoan = (allocationRows?.[0] ?? null) as Pick<PawnAllocation, 'id' | 'allocated_name'> | null
+        setEditSourceLoan(activeSourceLoan)
+        setEditSourceLoanName(activeSourceLoan?.allocated_name ?? '')
+
         setSavedItem({
           id: data.id,
           serial_number: data.serial_number,
@@ -191,15 +206,15 @@ export default function AddItem() {
   }, [editId, isSuperUser])
 
   useEffect(() => {
-    if (!isSuperUser) setNativeImageFolderName(nativeFolder)
-  }, [nativeFolder, isSuperUser])
+    const defaultImagePath = 'PawnVault'
+    setNativeFolder(defaultImagePath)
+    setWebSubdir(defaultImagePath)
+    setNativeImageFolderName(defaultImagePath)
+    setWebImageSubdirName(defaultImagePath)
+  }, [])
 
   useEffect(() => {
-    if (!isSuperUser) setWebImageSubdirName(webSubdir)
-  }, [webSubdir, isSuperUser])
-
-  useEffect(() => {
-    if (isSuperUser || !localImageRef || savingLocalImage) return
+    if (!localImageRef || savingLocalImage) return
     const currentSerial = serial.trim()
     if (!currentSerial) return
     if (lastSerialRef.current === currentSerial) return
@@ -216,7 +231,7 @@ export default function AddItem() {
         toast.error('Failed to rename image file')
       })
       .finally(() => setSavingLocalImage(false))
-  }, [serial, localImageRef, isSuperUser, savingLocalImage])
+  }, [serial, localImageRef, savingLocalImage])
 
   // ─── Auto-generate serial number when mediator changes ───
   const generateSerial = useCallback(async (med: MediatorOption | '', customName: string) => {
@@ -464,13 +479,10 @@ export default function AddItem() {
 
       setImageFile(compressed)
 
-      if (isSuperUser) {
-        setPreview(URL.createObjectURL(compressed))
-        return
-      }
-
       if (localImageRef) {
         try { await deleteLocalImage(localImageRef) } catch { /* ignore */ }
+        setLocalImageRef(null)
+        setLocalImageName(null)
       }
 
       const name = serial.trim() || `temp-${Date.now()}`
@@ -492,7 +504,7 @@ export default function AddItem() {
     if (preview) URL.revokeObjectURL(preview)
     setPreview(null)
 
-    if (!isSuperUser && localImageRef) {
+    if (localImageRef) {
       try { await deleteLocalImage(localImageRef) } catch { /* ignore */ }
       setLocalImageRef(null)
       setLocalImageName(null)
@@ -516,16 +528,11 @@ export default function AddItem() {
     } else {
       if (!itemType) { toast.error('Select item type'); return }
       if (!customerName.trim()) { toast.error('Enter customer name'); return }
-      if (!imageFile && !preview) { toast.error('Photo is required'); return }
     }
     if (!serial.trim()) { toast.error('Serial number not generated'); return }
-    if (!isSuperUser && savingLocalImage) { toast.error('Image is still saving'); return }
+    if (savingLocalImage) { toast.error('Image is still saving'); return }
     if (serialStatus === 'exists-active') { toast.error('Serial number already in use (active pledge)'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
-    if (!isSuperUser && !isNative && !webDirName) {
-      toast.error('Choose a folder to save images')
-      return
-    }
     const weightValue = weight.trim() ? Number(weight) : null
     if (weightValue !== null && (!Number.isFinite(weightValue) || weightValue <= 0)) {
       toast.error('Enter a valid weight')
@@ -535,42 +542,36 @@ export default function AddItem() {
     let rate = Number(rateOption)
     if (rateOption === 'custom') {
       rate = Number(customRate)
-      if (!rate || rate <= 0) { toast.error('Enter a valid custom rate'); return }
+      if (!rate || rate <= 0) { toast.error('Enter a valid custom interest'); return }
     }
 
     const mediatorName = mediator === 'Others' ? otherName.trim() : mediator
 
     setLoading(true)
     try {
-      let imageUrl: string | null = null
-
-      const cloudinaryReady = isCloudinaryConfigured()
-      if (imageFile && cloudinaryReady && isOnline) {
-        imageUrl = await uploadImageToCloudinary(imageFile, serial.trim() || 'pawn-item')
+      let localRef = localImageRef
+      if (imageFile && !localRef) {
+        const saved = await saveLocalImage(imageFile, serial.trim())
+        localRef = saved.localRef
+        setLocalImageRef(saved.localRef)
+        setLocalImageName(saved.fileName)
+        setPreview(saved.previewUrl)
       }
 
-      if (!imageUrl) {
-        if (!isSuperUser) {
-          if (localImageRef) {
-            imageUrl = localImageRef
-          } else if (imageFile) {
-            const saved = await saveLocalImage(imageFile, serial.trim())
-            imageUrl = saved.localRef
-            setLocalImageRef(saved.localRef)
-            setLocalImageName(saved.fileName)
-            setPreview(saved.previewUrl)
-          }
-        } else if (imageFile) {
-          if (!cloudinaryReady) {
-            throw new Error('Cloudinary is not configured')
-          }
-          if (!isOnline) {
-            throw new Error('You are offline. Connect to upload images')
-          }
+      const cloudinaryReady = isCloudinaryConfigured()
+      let cloudUrl: string | null = null
+      let cloudinaryFailed = false
+      if (imageFile && cloudinaryReady && isOnline) {
+        try {
+          cloudUrl = await uploadImageToCloudinary(imageFile, serial.trim() || 'pawn-item')
+        } catch {
+          cloudinaryFailed = true
         }
       }
 
-      if (!isSuperUser && !imageUrl) {
+      const imageUrl = cloudUrl ?? localRef ?? null
+
+      if (!imageUrl && imageFile) {
         toast.error('Photo is required')
         return
       }
@@ -589,9 +590,10 @@ export default function AddItem() {
         status: 'active' as const
       }
 
-      if (!isSuperUser && !isOnline) {
+      const shouldQueue = !isOnline || cloudinaryFailed
+      if (shouldQueue) {
         const queued = enqueuePendingPledge(payload)
-        toast.success('Saved offline — will sync when online')
+        toast.success(cloudinaryFailed ? 'Cloud upload failed — saved locally and queued' : 'Saved locally — will sync when possible')
         setQueuedOffline(true)
         setSavedItem({
           id: queued.id,
@@ -613,9 +615,9 @@ export default function AddItem() {
 
       if (error) {
         if (error.code === '23505') { toast.error('Serial number already exists'); return }
-        if (!isSuperUser && !navigator.onLine) {
+        if (!navigator.onLine) {
           const queued = enqueuePendingPledge(payload)
-          toast.success('Saved offline — will sync when online')
+          toast.success('Saved locally — will sync when possible')
           setQueuedOffline(true)
           setSavedItem({
             id: queued.id,
@@ -674,7 +676,13 @@ export default function AddItem() {
       toast.error('Enter a valid weight')
       return
     }
-    if (!isSuperUser && !isOnline) {
+    const sourceLoanPerson = editSourceLoanName.trim()
+    if (editSourceLoan && !sourceLoanPerson) {
+      toast.error('Enter source loan person name')
+      return
+    }
+    if (savingLocalImage) { toast.error('Image is still saving'); return }
+    if (!isOnline) {
       toast.error('You are offline. Update when back online.')
       return
     }
@@ -682,7 +690,7 @@ export default function AddItem() {
     let rate = Number(rateOption)
     if (rateOption === 'custom') {
       rate = Number(customRate)
-      if (!rate || rate <= 0) { toast.error('Enter a valid custom rate'); return }
+      if (!rate || rate <= 0) { toast.error('Enter a valid custom interest'); return }
     }
 
     setLoading(true)
@@ -690,31 +698,28 @@ export default function AddItem() {
       let imageUrl = savedItem.image_url
 
       if (imageFile) {
-        imageUrl = null
-        const cloudinaryReady = isCloudinaryConfigured()
-        if (cloudinaryReady && isOnline) {
-          imageUrl = await uploadImageToCloudinary(imageFile, serial.trim() || savedItem.serial_number)
+        let localRef = localImageRef
+        if (!localRef) {
+          const saved = await saveLocalImage(imageFile, serial.trim())
+          localRef = saved.localRef
+          setLocalImageRef(saved.localRef)
+          setLocalImageName(saved.fileName)
+          setPreview(saved.previewUrl)
         }
 
-        if (!imageUrl) {
-          if (!isSuperUser) {
-            if (localImageRef) {
-              imageUrl = localImageRef
-            } else {
-              const saved = await saveLocalImage(imageFile, serial.trim())
-              imageUrl = saved.localRef
-              setLocalImageRef(saved.localRef)
-              setLocalImageName(saved.fileName)
-              setPreview(saved.previewUrl)
-            }
-          } else {
-            if (!cloudinaryReady) {
-              throw new Error('Cloudinary is not configured')
-            }
-            if (!isOnline) {
-              throw new Error('You are offline. Connect to upload images')
-            }
+        const cloudinaryReady = isCloudinaryConfigured()
+        let cloudUrl: string | null = null
+        if (cloudinaryReady) {
+          try {
+            cloudUrl = await uploadImageToCloudinary(imageFile, serial.trim() || savedItem.serial_number)
+          } catch {
+            cloudUrl = null
           }
+        }
+
+        imageUrl = cloudUrl ?? localRef ?? null
+        if (!imageUrl) {
+          throw new Error('Photo is required')
         }
       }
 
@@ -734,6 +739,15 @@ export default function AddItem() {
         .eq('id', savedItem.id)
 
       if (error) throw error
+
+      if (editSourceLoan) {
+        const { error: sourceLoanError } = await supabase
+          .from('pawn_allocations')
+          .update({ allocated_name: sourceLoanPerson })
+          .eq('id', editSourceLoan.id)
+        if (sourceLoanError) throw sourceLoanError
+        setEditSourceLoan(prev => prev ? { ...prev, allocated_name: sourceLoanPerson } : prev)
+      }
 
       toast.success('Item updated successfully')
       setSavedItem({ ...savedItem, amount: Number(amount), weight: weightValue, interest_rate: rate, pledge_date: pledgeDate, image_url: imageUrl })
@@ -841,9 +855,15 @@ export default function AddItem() {
                 </div>
               )}
               <div className="detail-row" style={{ padding: '8px 0' }}>
-                <span className="detail-key">Rate</span>
-                <span className="detail-val">{savedItem.interest_rate}% / month</span>
+                <span className="detail-key">Interest</span>
+                <span className="detail-val">₹{Number(savedItem.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              {editSourceLoan?.allocated_name && (
+                <div className="detail-row" style={{ padding: '8px 0' }}>
+                  <span className="detail-key">Source Loan Person</span>
+                  <span className="detail-val">{editSourceLoan.allocated_name}</span>
+                </div>
+              )}
               <div className="detail-row" style={{ padding: '8px 0' }}>
                 <span className="detail-key">Pledge Date</span>
                 <span className="detail-val">{(() => { const dt = new Date(savedItem.pledge_date); return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}` })()}</span>
@@ -853,7 +873,7 @@ export default function AddItem() {
             {queuedOffline && (
               <div className="card" style={{ marginBottom: 16, padding: 12, background: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
                 <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--warning)' }}>
-                  Saved offline — this pledge will sync when you are back online.
+                  Saved locally — this pledge will sync when possible.
                 </div>
               </div>
             )}
@@ -980,54 +1000,7 @@ export default function AddItem() {
               onChange={e => { const f = e.target.files?.[0]; if (f) pickImage(f); e.target.value = '' }} />
           </div>
 
-          {!isSuperUser && (
-            <div className="card" style={{ marginBottom: 20, padding: 14 }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: 10 }}>
-                Image Storage
-              </div>
-              {isNative ? (
-                <>
-                  <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, display: 'block' }}>
-                    Gallery Folder Path
-                  </label>
-                  <input
-                    className="field-input"
-                    style={{ width: '100%' }}
-                    value={nativeFolder}
-                    onChange={e => setNativeFolder(e.target.value)}
-                    placeholder="PawnVault"
-                  />
-                  <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Saved to: Pictures/{nativeFolder || 'PawnVault'}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={handlePickWebFolder}>
-                      Choose Folder
-                    </button>
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                      {webDirName ? `Selected: ${webDirName}` : 'No folder selected'}
-                    </span>
-                  </div>
-                  <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, display: 'block' }}>
-                    Subfolder (optional)
-                  </label>
-                  <input
-                    className="field-input"
-                    style={{ width: '100%' }}
-                    value={webSubdir}
-                    onChange={e => setWebSubdir(e.target.value)}
-                    placeholder="PawnVault"
-                  />
-                </>
-              )}
-              <div style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Images are saved using the serial number (e.g. {serial.trim() || 'SERIAL'}.jpg).
-              </div>
-            </div>
-          )}
+          {/* Image path is fixed to default (PawnVault); manual path selection is intentionally hidden. */}
 
           {/* ─── Mediator (super user) or Item Type + Customer Name (others) ─── */}
           {isSuperUser ? (
@@ -1098,6 +1071,28 @@ export default function AddItem() {
               />
             </div>
           </>
+          )}
+
+          {editMode && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Users size={16} color="var(--accent)" />
+                Source Loan Person
+              </label>
+              {editSourceLoan ? (
+                <input
+                  className="field-input"
+                  style={{ width: '100%', fontSize: '1rem', fontWeight: 600 }}
+                  value={editSourceLoanName}
+                  onChange={e => setEditSourceLoanName(e.target.value)}
+                  placeholder="Enter source loan person"
+                />
+              ) : (
+                <div className="field-input" style={{ width: '100%', color: 'var(--text-muted)' }}>
+                  No active source loan for this pledge.
+                </div>
+              )}
+            </div>
           )}
 
           {/* ─── Serial Number (prefix locked, number editable) ─── */}
@@ -1231,10 +1226,10 @@ export default function AddItem() {
             </div>
           )}
 
-          {/* ─── Interest Rate ─── */}
+          {/* ─── Interest ─── */}
           <div style={{ marginBottom: 28 }}>
             <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8, display: 'block' }}>
-              Interest Rate
+              Interest
             </label>
             <div style={{ position: 'relative' }}>
               <select
@@ -1257,7 +1252,7 @@ export default function AddItem() {
                   inputMode="decimal"
                   value={customRate}
                   onChange={e => setCustomRate(e.target.value)}
-                  placeholder="Enter custom rate (e.g. 1.5)"
+                  placeholder="Enter custom interest (e.g. 1.5)"
                   step="0.01"
                   min="0"
                 />

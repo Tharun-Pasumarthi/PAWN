@@ -16,6 +16,30 @@ export interface PawnItem {
   updated_at?: string
 }
 
+export interface PawnAllocation {
+  id: string
+  item_id: string
+  user_id?: string
+  allocated_name: string
+  amount: number
+  interest_rate: number
+  allocation_date: string
+  status: 'active' | 'released'
+  released_at: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface PawnPartPayment {
+  id: string
+  item_id: string
+  user_id?: string
+  amount: number
+  payment_date: string
+  note: string | null
+  created_at?: string
+}
+
 export interface PawnHistory {
   id: string
   serial_number: string
