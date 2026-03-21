@@ -5,7 +5,7 @@ import type { PawnHistory, PawnItem } from '../types'
 
 const HISTORY_HEADERS = [
   'id', 'serial_number', 'customer_name', 'amount', 'interest_rate',
-  'pledge_date', 'release_date', 'total_interest', 'final_amount', 'created_at'
+  'pledge_date', 'release_date', 'total_interest', 'final_amount', 'source_principal', 'source_interest', 'source_total', 'created_at'
 ] as const
 
 const ITEM_HEADERS = [
@@ -44,7 +44,10 @@ function buildCsvWithHeaders<T>(data: T[], headers: readonly string[]): string {
 function buildHistoryCsv(data: PawnHistory[]): string {
   const rows = data.map(row => ({
     ...row,
-    interest_rate: formatAsCurrency(row.interest_rate)
+    interest_rate: formatAsCurrency(row.interest_rate),
+    source_principal: formatAsCurrency(row.source_principal ?? 0),
+    source_interest: formatAsCurrency(row.source_interest ?? 0),
+    source_total: formatAsCurrency(row.source_total ?? 0)
   }))
   return buildCsvWithHeaders(rows, HISTORY_HEADERS)
 }

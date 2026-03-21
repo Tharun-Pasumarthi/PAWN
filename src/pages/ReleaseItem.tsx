@@ -466,6 +466,9 @@ export default function ReleaseItem() {
         release_date: releaseDate,
         total_interest: combinedInterest,
         final_amount: releaseTotals.finalToCollect,
+        source_principal: releaseTotals.allocationPrincipal,
+        source_interest: releaseTotals.allocationInterest,
+        source_total: releaseTotals.allocationFinal,
         image_url: item.image_url
       }])
       if (hErr) throw hErr

@@ -244,6 +244,13 @@ export default function History() {
                             <DetailRow icon={<Calendar size={14} />} label="Pledged" value={shortDate(row.pledge_date)} />
                             <DetailRow icon={<IndianRupee size={14} />} label="Interest" value={`₹${fmt(row.total_interest)}`} />
                             <DetailRow icon={<Clock size={14} />} label="Duration" value={`${days} days`} />
+                            {Number(row.source_total ?? 0) > 0 && (
+                              <>
+                                <DetailRow icon={<IndianRupee size={14} />} label="Source Principal" value={`₹${fmt(Number(row.source_principal ?? 0))}`} />
+                                <DetailRow icon={<IndianRupee size={14} />} label="Source Interest" value={`₹${fmt(Number(row.source_interest ?? 0))}`} />
+                                <DetailRow icon={<IndianRupee size={14} />} label="Source Total" value={`₹${fmt(Number(row.source_total ?? 0))}`} />
+                              </>
+                            )}
                             {row.image_url && (
                               <div style={{ gridColumn: '1 / -1' }}>
                                 <button

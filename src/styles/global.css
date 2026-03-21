@@ -619,6 +619,15 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; 
   flex-shrink: 0;
   color: var(--text-muted);
 }
+.activity-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
 .activity-body { flex: 1; min-width: 0; }
 .activity-title { font-weight: 600; font-size: 0.9375rem; color: var(--text-primary); }
 .activity-sub { font-size: 0.8125rem; color: var(--text-muted); }
@@ -626,6 +635,26 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; 
 .activity-amount { font-weight: 700; font-size: 0.9375rem; color: var(--accent); }
 .activity-time { font-size: 0.6875rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .activity-badge { font-weight: 700; font-size: 0.75rem; color: var(--success); text-transform: uppercase; }
+
+@media (max-width: 560px) {
+  .activity-item {
+    gap: 10px;
+    padding: 12px 0;
+  }
+
+  .activity-thumb {
+    width: 46px;
+    height: 46px;
+  }
+
+  .activity-title {
+    font-size: 0.875rem;
+  }
+
+  .activity-sub {
+    font-size: 0.75rem;
+  }
+}
 
 .items-filter-toolbar {
   flex-wrap: wrap;

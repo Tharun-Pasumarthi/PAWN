@@ -50,6 +50,9 @@ export interface PawnHistory {
   release_date: string
   total_interest: number
   final_amount: number
+  source_principal?: number | null
+  source_interest?: number | null
+  source_total?: number | null
   image_url: string | null
   created_at?: string
 }

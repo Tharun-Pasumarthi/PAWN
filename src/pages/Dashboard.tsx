@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import ResolvedImage from '../components/ResolvedImage'
 import type { PawnItem } from '../types'
 
 interface Stats {
@@ -284,8 +285,17 @@ export default function Dashboard() {
                     className="activity-item activity-item-link"
                     onClick={() => navigate(`/items?status=${item.status}&item=${item.id}`)}
                   >
-                    <div className="activity-icon">
-                      {item.status === 'released' ? <Gem size={18} /> : <Package size={18} />}
+                    <div className="activity-thumb">
+                      <ResolvedImage
+                        src={item.image_url}
+                        alt=""
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        fallback={
+                          <div className="activity-icon" style={{ width: '100%', height: '100%', borderRadius: 12 }}>
+                            {item.status === 'released' ? <Gem size={18} /> : <Package size={18} />}
+                          </div>
+                        }
+                      />
                     </div>
                     <div className="activity-body">
                       <div className="activity-title">#{item.serial_number}</div>
