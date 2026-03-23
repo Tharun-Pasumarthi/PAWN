@@ -721,7 +721,7 @@ export default function ReleaseItem() {
                     Interest Calculation
                   </div>
 
-                  {allocations.length > 0 && (
+                  {allocations.length > 0 && !isSuperUser && (
                     <div style={{ marginBottom: 16, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                       <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 700, marginBottom: 8 }}>
                         Source Loans
@@ -777,13 +777,13 @@ export default function ReleaseItem() {
                     </div>
                   )}
 
-                  {allocations.length === 0 && (
+                  {allocations.length === 0 && !isSuperUser && (
                     <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                       <span className="badge badge-warning">Unallocated</span>
                     </div>
                   )}
 
-                  {partPayments.length > 0 && (
+                  {partPayments.length > 0 && !isSuperUser && (
                     <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
                         Part Payments Applied: ₹{releaseTotals.partPaymentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
