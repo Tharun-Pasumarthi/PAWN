@@ -315,6 +315,7 @@ ALTER TABLE pawn_items ADD COLUMN IF NOT EXISTS weight numeric;
 ALTER TABLE pawn_history ADD COLUMN IF NOT EXISTS source_principal numeric;
 ALTER TABLE pawn_history ADD COLUMN IF NOT EXISTS source_interest numeric;
 ALTER TABLE pawn_history ADD COLUMN IF NOT EXISTS source_total numeric;
+ALTER TABLE pawn_history ADD COLUMN IF NOT EXISTS source_shopkeepers text;
 
 
 -- ════════════════════════════════════════════════════════════════

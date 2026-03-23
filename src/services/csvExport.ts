@@ -4,14 +4,14 @@ import { Share } from '@capacitor/share'
 import type { PawnHistory, PawnItem } from '../types'
 
 const HISTORY_HEADERS = [
-  'id', 'serial_number', 'customer_name', 'amount', 'interest_rate',
-  'pledge_date', 'release_date', 'total_interest', 'final_amount', 'source_principal', 'source_interest', 'source_total', 'created_at'
+  'id', 'user_id', 'serial_number', 'customer_name', 'amount', 'interest_rate',
+  'pledge_date', 'release_date', 'total_interest', 'final_amount', 'source_principal', 'source_interest', 'source_total', 'source_shopkeepers', 'image_url', 'created_at'
 ] as const
 
 const ITEM_HEADERS = [
   'id', 'user_id', 'serial_number', 'mediator', 'mediator_name', 'item_type',
   'customer_name', 'weight', 'amount', 'interest_rate', 'part_payment_total', 'source_loan_names', 'pledge_date',
-  'status', 'created_at', 'updated_at'
+  'status', 'image_url', 'created_at', 'updated_at'
 ] as const
 
 function escapeCsvCell(value: unknown): string {
@@ -47,7 +47,8 @@ function buildHistoryCsv(data: PawnHistory[]): string {
     interest_rate: formatAsCurrency(row.interest_rate),
     source_principal: formatAsCurrency(row.source_principal ?? 0),
     source_interest: formatAsCurrency(row.source_interest ?? 0),
-    source_total: formatAsCurrency(row.source_total ?? 0)
+    source_total: formatAsCurrency(row.source_total ?? 0),
+    source_shopkeepers: row.source_shopkeepers ?? ''
   }))
   return buildCsvWithHeaders(rows, HISTORY_HEADERS)
 }

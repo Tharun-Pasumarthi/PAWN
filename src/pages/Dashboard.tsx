@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, CheckCircle, ChevronRight, LayoutGrid, FileText, Scale,
-  Gem, Package, LogOut, Store
+  Gem, Package, LogOut
 } from 'lucide-react'
 import { supabase } from '../services/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,19 +16,10 @@ interface Stats {
   totalPledged: number
 }
 
-interface ShopStats {
-  userId: string
-  active: number
-  released: number
-  totalPledged: number
-}
-
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { shopName, signOut, isSuperUser } = useAuth()
+  const { shopName, signOut } = useAuth()
   const [stats, setStats] = useState<Stats>({ active: 0, released: 0, totalPledged: 0 })
-  const [shopStats, setShopStats] = useState<ShopStats[]>([])
-  const [shopNames, setShopNames] = useState<Record<string, string>>({})
   const [recent, setRecent] = useState<PawnItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -48,27 +39,6 @@ export default function Dashboard() {
               .reduce((s, i) => s + Number(i.amount), 0)
           })
           setRecent(items.slice(0, 4) as PawnItem[])
-
-          // Per-shop breakdown for super user
-          if (isSuperUser) {
-            const byShop = new Map<string, { active: number; released: number; totalPledged: number }>()
-            for (const it of items) {
-              const uid = (it as any).user_id ?? 'unknown'
-              if (!byShop.has(uid)) byShop.set(uid, { active: 0, released: 0, totalPledged: 0 })
-              const s = byShop.get(uid)!
-              if (it.status === 'active') { s.active++; s.totalPledged += Number(it.amount) }
-              else { s.released++ }
-            }
-            setShopStats(Array.from(byShop.entries()).map(([userId, s]) => ({ userId, ...s })))
-
-            // Fetch shop names via secure RPC
-            const { data: shops } = await supabase.rpc('get_shops')
-            if (shops) {
-              const names: Record<string, string> = {}
-              for (const s of shops) names[s.user_id] = s.shop_name || s.phone || s.user_id.slice(0, 8)
-              setShopNames(names)
-            }
-          }
         }
       } catch { /* ignore */ }
       setLoading(false)
@@ -83,19 +53,6 @@ export default function Dashboard() {
           <Scale size={24} color="var(--accent)" style={{ flexShrink: 0 }} />
           <span className="topbar-title">
             {shopName}
-            {isSuperUser && (
-              <button
-                onClick={() => navigate('/shops')}
-                style={{
-                  fontSize: '0.7rem', fontWeight: 700, color: '#fff',
-                  background: 'var(--accent)', border: 'none', borderRadius: 20,
-                  padding: '3px 10px', marginLeft: 8, cursor: 'pointer',
-                  verticalAlign: 'middle', letterSpacing: '0.02em'
-                }}
-              >
-                All Shops
-              </button>
-            )}
           </span>
           <div className="topbar-actions">
             <button
@@ -147,71 +104,6 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.section>
-
-        {/* ─── Per-Shop Breakdown (super user only) ─── */}
-        {isSuperUser && !loading && shopStats.length > 0 && (
-          <motion.section
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05, duration: 0.4 }}
-            style={{ marginBottom: 28 }}
-          >
-            <div className="section-header" style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Store size={18} color="var(--accent)" />
-                <span className="section-title">Shop Breakdown</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {shopStats.map(shop => (
-                <motion.button
-                  key={shop.userId}
-                  className="action-card"
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => navigate(`/items?shop=${shop.userId}`)}
-                  style={{
-                    width: '100%', textAlign: 'left', cursor: 'pointer',
-                    padding: '14px 18px', border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)',
-                    display: 'block'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Store size={16} color="var(--accent)" />
-                      <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
-                        {shopNames[shop.userId] || shop.userId.slice(0, 8)}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                        {shop.active + shop.released} total
-                      </span>
-                      <ChevronRight size={16} color="var(--accent)" />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Active</div>
-                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--accent)' }}>{shop.active}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Released</div>
-                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--success)' }}>{shop.released}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginBottom: 2 }}>Pledged</div>
-                      <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
-                        ₹{shop.totalPledged.toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
-          </motion.section>
-        )}
 
         {/* ─── Quick Actions ─── */}
         <motion.section

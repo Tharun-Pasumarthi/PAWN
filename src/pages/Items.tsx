@@ -17,12 +17,16 @@ import type { PawnAllocation, PawnItem, PawnPartPayment } from '../types'
 type FilterStatus = 'all' | 'active' | 'released'
 
 export default function Items() {
+  // Delivery state: disable part-payment flow from the Items screen.
+  const isPartPaymentDisabled = true
+
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const shopFilter = searchParams.get('shop')
+  const rawShopFilter = searchParams.get('shop')
   const statusParam = searchParams.get('status')
   const focusItemParam = searchParams.get('item')
   const { user, isSuperUser } = useAuth()
+  const shopFilter = isSuperUser ? null : rawShopFilter
   const { verify, modal: authModal } = useVerifyAuth()
 
   const [items, setItems] = useState<PawnItem[]>([])
@@ -60,6 +64,29 @@ export default function Items() {
   const [partAmount, setPartAmount] = useState('')
   const [partDate, setPartDate] = useState(todayStr())
   const [partNote, setPartNote] = useState('')
+
+  const parseDisabledFlag = (value: unknown) => {
+    if (value === true || value === 1) return true
+    const normalized = String(value ?? '').trim().toLowerCase()
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on'
+  }
+
+  const [isSourceLoanDisabled, setIsSourceLoanDisabled] = useState(
+    parseDisabledFlag(user?.user_metadata?.disable_source_loan)
+  )
+
+  useEffect(() => {
+    setIsSourceLoanDisabled(parseDisabledFlag(user?.user_metadata?.disable_source_loan))
+  }, [user?.user_metadata?.disable_source_loan])
+
+  useEffect(() => {
+    ;(async () => {
+      const { data } = await supabase.auth.getUser()
+      const latestFlag = parseDisabledFlag(data.user?.user_metadata?.disable_source_loan)
+      setIsSourceLoanDisabled(latestFlag)
+      if (latestFlag) setAllocModalItem(null)
+    })()
+  }, [])
 
   const fetchItems = async () => {
     try {
@@ -255,6 +282,10 @@ export default function Items() {
   }
 
   const openAllocate = (item: PawnItem) => {
+    if (isSourceLoanDisabled) {
+      toast.error('Source loan is disabled for this shop')
+      return
+    }
     if ((itemFinance[item.id]?.allocationCount ?? 0) > 0) {
       toast.error('Only one source loan is allowed. Use Edit to update it.')
       return
@@ -268,6 +299,10 @@ export default function Items() {
   }
 
   const openPartPayment = (item: PawnItem) => {
+    if (isPartPaymentDisabled) {
+      toast.error('Part payment is disabled in delivery version')
+      return
+    }
     setPartModalItem(item)
     setPartAmount('')
     setPartDate(todayStr())
@@ -275,6 +310,11 @@ export default function Items() {
   }
 
   const saveAllocation = async () => {
+    if (isSourceLoanDisabled) {
+      toast.error('Source loan is disabled for this shop')
+      setAllocModalItem(null)
+      return
+    }
     if (!allocModalItem) return
     if (!allocName.trim()) { toast.error('Enter source name'); return }
     const amount = Number(allocAmount)
@@ -319,6 +359,11 @@ export default function Items() {
   }
 
   const savePartPayment = async () => {
+    if (isPartPaymentDisabled) {
+      toast.error('Part payment is disabled in delivery version')
+      setPartModalItem(null)
+      return
+    }
     if (!partModalItem) return
     const amount = Number(partAmount)
     if (!amount || amount <= 0) { toast.error('Enter a valid payment amount'); return }
@@ -353,17 +398,15 @@ export default function Items() {
           </button>
           <span className="topbar-title">{shopFilter && shopName ? shopName : 'All Items'}</span>
           <div className="topbar-actions items-topbar-actions">
-            {!isSuperUser && (
-              <motion.button
-                className="btn btn-ghost btn-sm"
-                onClick={handleExport}
-                disabled={!filtered.length}
-                whileTap={{ scale: 0.95 }}
-                style={{ borderRadius: 'var(--radius-full)', padding: '8px 12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Download size={16} /> Export
-              </motion.button>
-            )}
+            <motion.button
+              className="btn btn-ghost btn-sm"
+              onClick={handleExport}
+              disabled={!filtered.length}
+              whileTap={{ scale: 0.95 }}
+              style={{ borderRadius: 'var(--radius-full)', padding: '8px 12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Download size={16} /> Export
+            </motion.button>
             <motion.button
               className="btn btn-primary btn-sm"
               onClick={() => navigate('/add')}
@@ -500,6 +543,7 @@ export default function Items() {
                 const isExpanded = expandedId === item.id
                 const isDeleting = deletingId === item.id
                 const hasSourceLoan = (itemFinance[item.id]?.allocationCount ?? 0) > 0
+                const sourceLoanLocked = hasSourceLoan || isSourceLoanDisabled
                 return (
                   <motion.div
                     key={item.id}
@@ -632,7 +676,7 @@ export default function Items() {
                                   {item.status === 'active' ? 'Active' : 'Released'}
                                 </span>
                               </div>
-                              {item.status === 'active' && (
+                              {item.status === 'active' && !isSuperUser && (
                                 <>
                                   <div className="detail-row" style={{ padding: '8px 0' }}>
                                     <span className="detail-key">Allocation Status</span>
@@ -661,7 +705,7 @@ export default function Items() {
                             </div>
 
                             {/* Action buttons — only for active items */}
-                            {item.status === 'active' && (!isSuperUser || item.user_id === user?.id) && (
+                            {item.status === 'active' && (
                               <>
                                 <div className="item-action-row" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                                   <motion.button
@@ -683,34 +727,47 @@ export default function Items() {
                                     {isDeleting ? 'Deleting…' : 'Delete'}
                                   </motion.button>
                                 </div>
-                                <div className="item-action-row" style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                                  <motion.button
-                                    className="btn btn-full"
-                                    onClick={() => openAllocate(item)}
-                                    disabled={hasSourceLoan}
-                                    whileTap={{ scale: 0.97 }}
-                                    style={{
-                                      flex: 1,
-                                      borderRadius: 'var(--radius-xl)',
-                                      fontSize: '0.875rem',
-                                      fontWeight: 700,
-                                      padding: '12px 16px',
-                                      background: hasSourceLoan ? '#94a3b8' : '#0ea5e9',
-                                      color: 'white',
-                                      opacity: hasSourceLoan ? 0.95 : 1
-                                    }}
-                                  >
-                                    <Plus size={16} /> {hasSourceLoan ? 'Use Edit for Loan' : 'Source Loan'}
-                                  </motion.button>
-                                  <motion.button
-                                    className="btn btn-full"
-                                    onClick={() => openPartPayment(item)}
-                                    whileTap={{ scale: 0.97 }}
-                                    style={{ flex: 1, borderRadius: 'var(--radius-xl)', fontSize: '0.875rem', fontWeight: 700, padding: '12px 16px', background: '#7c3aed', color: 'white' }}
-                                  >
-                                    <IndianRupee size={16} /> Part Payment
-                                  </motion.button>
-                                </div>
+                                {!isSuperUser && (
+                                  <div className="item-action-row" style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                                    <motion.button
+                                      className="btn btn-full"
+                                      onClick={() => openAllocate(item)}
+                                      disabled={sourceLoanLocked}
+                                      whileTap={{ scale: 0.97 }}
+                                      style={{
+                                        flex: 1,
+                                        borderRadius: 'var(--radius-xl)',
+                                        fontSize: '0.875rem',
+                                        fontWeight: 700,
+                                        padding: '12px 16px',
+                                        background: sourceLoanLocked ? '#94a3b8' : '#0ea5e9',
+                                        color: 'white',
+                                        opacity: sourceLoanLocked ? 0.95 : 1
+                                      }}
+                                    >
+                                      <Plus size={16} />
+                                      {isSourceLoanDisabled ? 'Source Loan Disabled' : hasSourceLoan ? 'Use Edit for Loan' : 'Source Loan'}
+                                    </motion.button>
+                                    <motion.button
+                                      className="btn btn-full"
+                                      onClick={() => openPartPayment(item)}
+                                      disabled={isPartPaymentDisabled}
+                                      whileTap={{ scale: 0.97 }}
+                                      style={{
+                                        flex: 1,
+                                        borderRadius: 'var(--radius-xl)',
+                                        fontSize: '0.875rem',
+                                        fontWeight: 700,
+                                        padding: '12px 16px',
+                                        background: isPartPaymentDisabled ? '#94a3b8' : '#7c3aed',
+                                        color: 'white',
+                                        opacity: isPartPaymentDisabled ? 0.95 : 1
+                                      }}
+                                    >
+                                      <IndianRupee size={16} /> {isPartPaymentDisabled ? 'Part Payment Disabled' : 'Part Payment'}
+                                    </motion.button>
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>

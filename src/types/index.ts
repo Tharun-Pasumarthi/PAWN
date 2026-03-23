@@ -42,6 +42,7 @@ export interface PawnPartPayment {
 
 export interface PawnHistory {
   id: string
+  user_id?: string
   serial_number: string
   customer_name: string | null
   amount: number
@@ -53,6 +54,7 @@ export interface PawnHistory {
   source_principal?: number | null
   source_interest?: number | null
   source_total?: number | null
+  source_shopkeepers?: string | null
   image_url: string | null
   created_at?: string
 }

@@ -10,4 +10,3 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-export const STORAGE_BUCKET = 'pawn-images'

@@ -300,7 +300,8 @@ export default function ReleaseItem() {
         baseInterest: calc?.totalInterest ?? 0,
         baseFinalAfterPartPayments: calc?.finalAmount ?? 0,
         finalToCollect: calc?.finalAmount ?? 0,
-        selectedAllocationIds: [] as string[]
+        selectedAllocationIds: [] as string[],
+        selectedAllocationNames: [] as string[]
       }
     }
 
@@ -369,7 +370,10 @@ export default function ReleaseItem() {
       baseInterest,
       baseFinalAfterPartPayments,
       finalToCollect,
-      selectedAllocationIds: selectedAllocations.map(a => a.id)
+      selectedAllocationIds: selectedAllocations.map(a => a.id),
+      selectedAllocationNames: selectedAllocations
+        .map(a => a.allocated_name.trim())
+        .filter(Boolean)
     }
   }, [
     item,
@@ -469,6 +473,7 @@ export default function ReleaseItem() {
         source_principal: releaseTotals.allocationPrincipal,
         source_interest: releaseTotals.allocationInterest,
         source_total: releaseTotals.allocationFinal,
+        source_shopkeepers: releaseTotals.selectedAllocationNames.join(' | ') || null,
         image_url: item.image_url
       }])
       if (hErr) throw hErr

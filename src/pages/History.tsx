@@ -43,7 +43,8 @@ export default function History() {
   const searched = query
     ? data.filter(r =>
         r.serial_number.toLowerCase().includes(query.toLowerCase()) ||
-        (r.customer_name ?? '').toLowerCase().includes(query.toLowerCase())
+        (r.customer_name ?? '').toLowerCase().includes(query.toLowerCase()) ||
+        (r.source_shopkeepers ?? '').toLowerCase().includes(query.toLowerCase())
       )
     : data
 
@@ -140,7 +141,7 @@ export default function History() {
           <input
             className="field-input"
             style={{ paddingLeft: 38, borderRadius: 12 }}
-            placeholder="Search by serial or customer…"
+            placeholder="Search by serial, customer, or source shopkeeper…"
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
@@ -219,9 +220,9 @@ export default function History() {
                           Released {shortDate(row.release_date)}
                         </span>
                       </div>
-                      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <div className="history-right">
                         <span className="history-amount">{inr(Number(row.final_amount))}</span>
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>{days}d @ ₹{Number(row.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className="history-rate-meta">{days}d @ ₹{Number(row.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                       <ChevronDown
                         size={16}
@@ -239,7 +240,7 @@ export default function History() {
                           transition={{ duration: 0.2 }}
                           style={{ overflow: 'hidden' }}
                         >
-                          <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: '0.8125rem' }}>
+                          <div className="history-detail-grid" style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: '0.8125rem' }}>
                             <DetailRow icon={<IndianRupee size={14} />} label="Principal" value={`₹${fmt(row.amount)}`} />
                             <DetailRow icon={<Calendar size={14} />} label="Pledged" value={shortDate(row.pledge_date)} />
                             <DetailRow icon={<IndianRupee size={14} />} label="Interest" value={`₹${fmt(row.total_interest)}`} />
@@ -249,6 +250,7 @@ export default function History() {
                                 <DetailRow icon={<IndianRupee size={14} />} label="Source Principal" value={`₹${fmt(Number(row.source_principal ?? 0))}`} />
                                 <DetailRow icon={<IndianRupee size={14} />} label="Source Interest" value={`₹${fmt(Number(row.source_interest ?? 0))}`} />
                                 <DetailRow icon={<IndianRupee size={14} />} label="Source Total" value={`₹${fmt(Number(row.source_total ?? 0))}`} />
+                                <DetailRow icon={<Search size={14} />} label="Source Shopkeeper" value={(row.source_shopkeepers ?? '—')} />
                               </>
                             )}
                             {row.image_url && (

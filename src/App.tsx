@@ -13,7 +13,6 @@ import Items from './pages/Items'
 import ReleaseItem from './pages/ReleaseItem'
 import History from './pages/History'
 import Settings from './pages/Settings'
-import Shops from './pages/Shops'
 import Login from './pages/Login'
 import InstallBanner from './components/InstallBanner'
 import OfflineBanner from './components/OfflineBanner'
@@ -74,7 +73,6 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/items" element={<Items />} />
-        <Route path="/shops" element={<Shops />} />
         <Route path="/add" element={<AddItem />} />
         <Route path="/release" element={<ReleaseItem />} />
         <Route path="/history" element={<History />} />
