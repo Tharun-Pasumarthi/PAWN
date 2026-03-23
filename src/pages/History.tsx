@@ -66,7 +66,7 @@ export default function History() {
     (acc, r) => ({
       principal: acc.principal + Number(r.amount),
       interest: acc.interest + Number(r.total_interest),
-      total: acc.total + Number(r.final_amount)
+      total: acc.total + Number(r.amount) + Number(r.total_interest)
     }),
     { principal: 0, interest: 0, total: 0 }
   )
@@ -180,6 +180,9 @@ export default function History() {
               {filtered.map((row, i) => {
                 const days = daysBetween(row.pledge_date, row.release_date)
                 const isOpen = expandedId === row.id
+                const principal = Number(row.amount)
+                const interest = Number(row.total_interest)
+                const totalAmount = principal + interest
                 return (
                   <motion.div
                     key={row.id}
@@ -221,7 +224,7 @@ export default function History() {
                         </span>
                       </div>
                       <div className="history-right">
-                        <span className="history-amount">{inr(Number(row.final_amount))}</span>
+                        <span className="history-amount">{inr(totalAmount)}</span>
                         <span className="history-rate-meta">{days}d @ ₹{Number(row.interest_rate).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                       <ChevronDown
@@ -241,10 +244,11 @@ export default function History() {
                           style={{ overflow: 'hidden' }}
                         >
                           <div className="history-detail-grid" style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: '0.8125rem' }}>
-                            <DetailRow icon={<IndianRupee size={14} />} label="Principal" value={`₹${fmt(row.amount)}`} />
+                            <DetailRow icon={<IndianRupee size={14} />} label="Principal" value={`₹${fmt(principal)}`} />
                             <DetailRow icon={<Calendar size={14} />} label="Pledged" value={shortDate(row.pledge_date)} />
-                            <DetailRow icon={<IndianRupee size={14} />} label="Interest" value={`₹${fmt(row.total_interest)}`} />
+                            <DetailRow icon={<IndianRupee size={14} />} label="Interest" value={`₹${fmt(interest)}`} />
                             <DetailRow icon={<Clock size={14} />} label="Duration" value={`${days} days`} />
+                            <DetailRow icon={<IndianRupee size={14} />} label="Total (Principal + Interest)" value={`₹${fmt(totalAmount)}`} />
                             {Number(row.source_total ?? 0) > 0 && (
                               <>
                                 <DetailRow icon={<IndianRupee size={14} />} label="Source Principal" value={`₹${fmt(Number(row.source_principal ?? 0))}`} />
