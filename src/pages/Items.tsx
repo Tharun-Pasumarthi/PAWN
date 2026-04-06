@@ -17,9 +17,6 @@ import type { PawnAllocation, PawnItem, PawnPartPayment } from '../types'
 type FilterStatus = 'all' | 'active' | 'released'
 
 export default function Items() {
-  // Delivery state: disable part-payment flow from the Items screen.
-  const isPartPaymentDisabled = true
-
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const rawShopFilter = searchParams.get('shop')
@@ -65,34 +62,18 @@ export default function Items() {
   const [partDate, setPartDate] = useState(todayStr())
   const [partNote, setPartNote] = useState('')
 
-  const parseDisabledFlag = (value: unknown) => {
-    if (value === true || value === 1) return true
-    const normalized = String(value ?? '').trim().toLowerCase()
-    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on'
-  }
-
-  const [isSourceLoanDisabled, setIsSourceLoanDisabled] = useState(
-    parseDisabledFlag(user?.user_metadata?.disable_source_loan)
-  )
-
-  useEffect(() => {
-    setIsSourceLoanDisabled(parseDisabledFlag(user?.user_metadata?.disable_source_loan))
-  }, [user?.user_metadata?.disable_source_loan])
-
-  useEffect(() => {
-    ;(async () => {
-      const { data } = await supabase.auth.getUser()
-      const latestFlag = parseDisabledFlag(data.user?.user_metadata?.disable_source_loan)
-      setIsSourceLoanDisabled(latestFlag)
-      if (latestFlag) setAllocModalItem(null)
-    })()
-  }, [])
-
   const fetchItems = async () => {
+    if (!user?.id) {
+      setItems([])
+      setLoading(false)
+      return
+    }
+
     try {
       const { data, error } = await supabase
         .from('pawn_items')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       setItems((data ?? []) as PawnItem[])
@@ -103,7 +84,7 @@ export default function Items() {
     }
   }
 
-  useEffect(() => { fetchItems() }, [])
+  useEffect(() => { fetchItems() }, [user?.id])
 
   useEffect(() => {
     if (!items.length) { setItemFinance({}); return }
@@ -140,11 +121,13 @@ export default function Items() {
 
         ;((allocations ?? []) as Array<Pick<PawnAllocation, 'item_id' | 'amount' | 'allocated_name' | 'status'>>).forEach(a => {
           if (!finance[a.item_id]) return
+          if (a.status !== 'active') return
+
           const normalizedName = a.allocated_name.trim()
           if (normalizedName && !finance[a.item_id].sourceLoanNames.includes(normalizedName)) {
             finance[a.item_id].sourceLoanNames.push(normalizedName)
           }
-          if (a.status !== 'active') return
+
           finance[a.item_id].allocationCount += 1
           finance[a.item_id].allocationPrincipal += Number(a.amount)
           if (normalizedName && !finance[a.item_id].allocationNames.includes(normalizedName)) {
@@ -269,8 +252,12 @@ export default function Items() {
 
     setDeletingId(item.id)
     try {
-      const { error } = await supabase.from('pawn_items').delete().eq('id', item.id)
-      if (error) throw error
+      if (user?.id) {
+        const { error } = await supabase.from('pawn_items').delete().eq('id', item.id).eq('user_id', user.id)
+        if (error) throw error
+      } else {
+        throw new Error('User session missing')
+      }
       toast.success(`#${item.serial_number} deleted`)
       setItems(prev => prev.filter(i => i.id !== item.id))
       setExpandedId(null)
@@ -282,10 +269,6 @@ export default function Items() {
   }
 
   const openAllocate = (item: PawnItem) => {
-    if (isSourceLoanDisabled) {
-      toast.error('Source loan is disabled for this shop')
-      return
-    }
     if ((itemFinance[item.id]?.allocationCount ?? 0) > 0) {
       toast.error('Only one source loan is allowed. Use Edit to update it.')
       return
@@ -299,10 +282,6 @@ export default function Items() {
   }
 
   const openPartPayment = (item: PawnItem) => {
-    if (isPartPaymentDisabled) {
-      toast.error('Part payment is disabled in delivery version')
-      return
-    }
     setPartModalItem(item)
     setPartAmount('')
     setPartDate(todayStr())
@@ -310,12 +289,8 @@ export default function Items() {
   }
 
   const saveAllocation = async () => {
-    if (isSourceLoanDisabled) {
-      toast.error('Source loan is disabled for this shop')
-      setAllocModalItem(null)
-      return
-    }
     if (!allocModalItem) return
+    if (!user?.id) { toast.error('User session missing'); return }
     if (!allocName.trim()) { toast.error('Enter source name'); return }
     const amount = Number(allocAmount)
     if (!amount || amount <= 0) { toast.error('Enter a valid source amount'); return }
@@ -329,6 +304,7 @@ export default function Items() {
         .from('pawn_allocations')
         .select('id')
         .eq('item_id', allocModalItem.id)
+        .eq('user_id', user.id)
         .eq('status', 'active')
         .limit(1)
       if (existingError) throw existingError
@@ -340,6 +316,7 @@ export default function Items() {
 
       const { error } = await supabase.from('pawn_allocations').insert([{
         item_id: allocModalItem.id,
+        user_id: user.id,
         allocated_name: allocName.trim(),
         amount,
         interest_rate: rate,
@@ -359,12 +336,8 @@ export default function Items() {
   }
 
   const savePartPayment = async () => {
-    if (isPartPaymentDisabled) {
-      toast.error('Part payment is disabled in delivery version')
-      setPartModalItem(null)
-      return
-    }
     if (!partModalItem) return
+    if (!user?.id) { toast.error('User session missing'); return }
     const amount = Number(partAmount)
     if (!amount || amount <= 0) { toast.error('Enter a valid payment amount'); return }
     if (!partDate) { toast.error('Pick payment date'); return }
@@ -373,6 +346,7 @@ export default function Items() {
     try {
       const { error } = await supabase.from('pawn_part_payments').insert([{
         item_id: partModalItem.id,
+        user_id: user.id,
         amount,
         payment_date: partDate,
         note: partNote.trim() || null
@@ -543,7 +517,7 @@ export default function Items() {
                 const isExpanded = expandedId === item.id
                 const isDeleting = deletingId === item.id
                 const hasSourceLoan = (itemFinance[item.id]?.allocationCount ?? 0) > 0
-                const sourceLoanLocked = hasSourceLoan || isSourceLoanDisabled
+                const sourceLoanLocked = hasSourceLoan
                 return (
                   <motion.div
                     key={item.id}
@@ -746,12 +720,11 @@ export default function Items() {
                                       }}
                                     >
                                       <Plus size={16} />
-                                      {isSourceLoanDisabled ? 'Source Loan Disabled' : hasSourceLoan ? 'Use Edit for Loan' : 'Source Loan'}
+                                      {hasSourceLoan ? 'Use Edit for Loan' : 'Source Loan'}
                                     </motion.button>
                                     <motion.button
                                       className="btn btn-full"
                                       onClick={() => openPartPayment(item)}
-                                      disabled={isPartPaymentDisabled}
                                       whileTap={{ scale: 0.97 }}
                                       style={{
                                         flex: 1,
@@ -759,12 +732,12 @@ export default function Items() {
                                         fontSize: '0.875rem',
                                         fontWeight: 700,
                                         padding: '12px 16px',
-                                        background: isPartPaymentDisabled ? '#94a3b8' : '#7c3aed',
+                                        background: '#7c3aed',
                                         color: 'white',
-                                        opacity: isPartPaymentDisabled ? 0.95 : 1
+                                        opacity: 1
                                       }}
                                     >
-                                      <IndianRupee size={16} /> {isPartPaymentDisabled ? 'Part Payment Disabled' : 'Part Payment'}
+                                      <IndianRupee size={16} /> Part Payment
                                     </motion.button>
                                   </div>
                                 )}

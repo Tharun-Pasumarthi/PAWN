@@ -14,7 +14,7 @@ import type { PawnAllocation, PawnItem, PawnPartPayment, InterestResult } from '
 
 export default function ReleaseItem() {
   const navigate = useNavigate()
-  const { isSuperUser } = useAuth()
+  const { isSuperUser, user } = useAuth()
 
   const [allItems, setAllItems] = useState<PawnItem[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
@@ -48,18 +48,26 @@ export default function ReleaseItem() {
   const rateOptions = isSuperUser ? SUPER_RATES : NORMAL_RATES
 
   const loadItemExtras = async (itemId: string) => {
+    if (!user?.id) {
+      setAllocations([])
+      setPartPayments([])
+      return
+    }
+
     try {
       const [{ data: allocRows }, { data: partRows }] = await Promise.all([
         supabase
           .from('pawn_allocations')
           .select('*')
           .eq('item_id', itemId)
+          .eq('user_id', user.id)
           .eq('status', 'active')
           .order('allocation_date', { ascending: true }),
         supabase
           .from('pawn_part_payments')
           .select('*')
           .eq('item_id', itemId)
+          .eq('user_id', user.id)
           .order('payment_date', { ascending: true })
       ])
 
@@ -73,12 +81,19 @@ export default function ReleaseItem() {
 
   // Fetch all active items on mount
   useEffect(() => {
+    if (!user?.id) {
+      setAllItems([])
+      setLoadingItems(false)
+      return
+    }
+
     ;(async () => {
       try {
         const { data, error } = await supabase
           .from('pawn_items')
           .select('*')
           .eq('status', 'active')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false })
         if (error) throw error
         setAllItems((data ?? []) as PawnItem[])
@@ -88,7 +103,7 @@ export default function ReleaseItem() {
         setLoadingItems(false)
       }
     })()
-  }, [])
+  }, [user?.id])
 
   const filteredItems = allItems.filter(i => {
     if (!filterText.trim()) return true
@@ -129,6 +144,7 @@ export default function ReleaseItem() {
   }
 
   const searchItem = useCallback(async () => {
+    if (!user?.id) { toast.error('User session missing'); return }
     if (!serial.trim()) { toast.error('Enter a serial number'); return }
     setSearching(true)
     setItem(null)
@@ -139,6 +155,7 @@ export default function ReleaseItem() {
         .select('*')
         .eq('serial_number', serial.trim())
         .eq('status', 'active')
+        .eq('user_id', user.id)
         .maybeSingle()
       if (error) throw error
       if (!data) { toast.error('Item not found or already released'); return }
@@ -172,7 +189,7 @@ export default function ReleaseItem() {
     } finally {
       setSearching(false)
     }
-  }, [serial, releaseDate, isSuperUser, defaultPhaseRate1, defaultPhaseRate2, phaseBoundaryDate])
+  }, [serial, releaseDate, isSuperUser, defaultPhaseRate1, defaultPhaseRate2, phaseBoundaryDate, user?.id])
 
   const phaseMandatory = item ? isTwoPhase(item.pledge_date, releaseDate, item.mediator_name) : false
   // Any item with at least 2 days can use phase calculator
@@ -420,6 +437,7 @@ export default function ReleaseItem() {
 
   const handleRemoveAllocation = async (allocation: PawnAllocation) => {
     if (!item) return
+    if (!user?.id) { toast.error('User session missing'); return }
     if (!window.confirm(`Remove source loan from ${allocation.allocated_name}?`)) return
 
     setRemovingAllocationId(allocation.id)
@@ -428,6 +446,7 @@ export default function ReleaseItem() {
         .from('pawn_allocations')
         .update({ status: 'released', released_at: todayStr() })
         .eq('id', allocation.id)
+        .eq('user_id', user.id)
       if (error) throw error
 
       setAllocations(prev => prev.filter(a => a.id !== allocation.id))
@@ -441,6 +460,7 @@ export default function ReleaseItem() {
 
   const handleRelease = async () => {
     if (!item || !calc) return
+    if (!user?.id) { toast.error('User session missing'); return }
 
     const now = new Date()
     const todayStr2 = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
@@ -462,6 +482,7 @@ export default function ReleaseItem() {
       const historyPrincipal = Number(item.amount)
 
       const { error: hErr } = await supabase.from('pawn_history').insert([{
+        user_id: user.id,
         serial_number: item.serial_number,
         customer_name: item.customer_name ?? null,
         amount: historyPrincipal,
@@ -482,12 +503,14 @@ export default function ReleaseItem() {
         .from('pawn_items')
         .update({ status: 'released' })
         .eq('id', item.id)
+        .eq('user_id', user.id)
       if (uErr) throw uErr
 
       if (releaseTotals.selectedAllocationIds.length > 0) {
         const { error: aErr } = await supabase
           .from('pawn_allocations')
           .update({ status: 'released', released_at: releaseDate })
+          .eq('user_id', user.id)
           .in('id', releaseTotals.selectedAllocationIds)
         if (aErr) throw aErr
       }

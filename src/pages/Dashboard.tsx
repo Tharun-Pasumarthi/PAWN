@@ -18,17 +18,25 @@ interface Stats {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { shopName, signOut } = useAuth()
+  const { shopName, signOut, user } = useAuth()
   const [stats, setStats] = useState<Stats>({ active: 0, released: 0, totalPledged: 0 })
   const [recent, setRecent] = useState<PawnItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!user?.id) {
+      setStats({ active: 0, released: 0, totalPledged: 0 })
+      setRecent([])
+      setLoading(false)
+      return
+    }
+
     ;(async () => {
       try {
         const { data: items } = await supabase
           .from('pawn_items')
           .select('*')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false })
         if (items) {
           setStats({
@@ -43,7 +51,7 @@ export default function Dashboard() {
       } catch { /* ignore */ }
       setLoading(false)
     })()
-  }, [])
+  }, [user?.id])
 
   return (
     <>

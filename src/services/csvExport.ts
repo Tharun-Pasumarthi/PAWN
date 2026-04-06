@@ -48,7 +48,7 @@ function buildHistoryCsv(data: PawnHistory[]): string {
     source_principal: formatAsCurrency(row.source_principal ?? 0),
     source_interest: formatAsCurrency(row.source_interest ?? 0),
     source_total: formatAsCurrency(row.source_total ?? 0),
-    source_shopkeepers: row.source_shopkeepers ?? ''
+    source_shopkeepers: normalizePipeList(row.source_shopkeepers)
   }))
   return buildCsvWithHeaders(rows, HISTORY_HEADERS)
 }
@@ -59,9 +59,23 @@ function buildItemsCsv(data: PawnItemCsvRow[]): string {
   const rows = data.map(row => ({
     ...row,
     interest_rate: formatAsCurrency(row.interest_rate),
-    part_payment_total: formatAsCurrency(row.part_payment_total ?? 0)
+    part_payment_total: formatAsCurrency(row.part_payment_total ?? 0),
+    source_loan_names: normalizePipeList(row.source_loan_names)
   }))
   return buildCsvWithHeaders(rows, ITEM_HEADERS)
+}
+
+function normalizePipeList(value: unknown): string {
+  if (value == null) return ''
+  const unique = Array.from(
+    new Set(
+      String(value)
+        .split('|')
+        .map(part => part.trim())
+        .filter(Boolean)
+    )
+  )
+  return unique.join(' | ')
 }
 
 function formatAsCurrency(value: number | string | null | undefined): string {

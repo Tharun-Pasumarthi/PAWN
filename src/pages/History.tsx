@@ -10,12 +10,14 @@ import { supabase } from '../services/supabaseClient'
 import { exportToCSV } from '../services/csvExport'
 import ImageLightbox from '../components/ImageLightbox'
 import ResolvedImage from '../components/ResolvedImage'
+import { useAuth } from '../contexts/AuthContext'
 import type { PawnHistory } from '../types'
 
 type Tab = 'all' | 'recent' | 'high'
 
 export default function History() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<PawnHistory[]>([])
   const [query, setQuery] = useState('')
@@ -24,11 +26,18 @@ export default function History() {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!user?.id) {
+      setData([])
+      setLoading(false)
+      return
+    }
+
     ;(async () => {
       try {
         const { data: rows, error } = await supabase
           .from('pawn_history')
           .select('*')
+          .eq('user_id', user.id)
           .order('release_date', { ascending: false })
         if (error) throw error
         setData(rows ?? [])
@@ -38,7 +47,7 @@ export default function History() {
         setLoading(false)
       }
     })()
-  }, [])
+  }, [user?.id])
 
   const searched = query
     ? data.filter(r =>

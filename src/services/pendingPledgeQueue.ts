@@ -5,6 +5,7 @@ import { isLocalImageRef, loadLocalImageBlob } from './localImageStore'
 const QUEUE_KEY = 'pawnvault.pendingPledges'
 
 export type PendingPledgePayload = {
+  user_id: string
   serial_number: string
   mediator: string | null
   mediator_name: string | null
@@ -53,13 +54,20 @@ export function removePendingPledge(id: string): void {
 }
 
 export async function syncPendingPledges(): Promise<{ synced: number; failed: number }> {
+  const { data: authData } = await supabase.auth.getUser()
+  const currentUserId = authData.user?.id
+  if (!currentUserId) return { synced: 0, failed: 0 }
+
   const list = loadPendingPledges()
   if (!list.length) return { synced: 0, failed: 0 }
+
+  const userEntries = list.filter(entry => entry.payload.user_id === currentUserId)
+  if (!userEntries.length) return { synced: 0, failed: 0 }
 
   let synced = 0
   let failed = 0
 
-  for (const entry of list) {
+  for (const entry of userEntries) {
     try {
       const payload = await ensureCloudImageUrl(entry.payload)
       const { error } = await supabase.from('pawn_items').insert([payload])

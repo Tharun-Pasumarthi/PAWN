@@ -55,7 +55,7 @@ const IMAGE_TARGET_BYTES = 200 * 1024
 
 export default function AddItem() {
   const navigate = useNavigate()
-  const { isSuperUser } = useAuth()
+  const { isSuperUser, user } = useAuth()
   const isOnline = useOnlineStatus()
   const { verify, modal: authModal } = useVerifyAuth()
   const [searchParams] = useSearchParams()
@@ -120,12 +120,14 @@ export default function AddItem() {
   // ─── Load existing item for editing (when navigating from Items page) ───
   useEffect(() => {
     if (!editId) return
+    if (!user?.id) return
     ;(async () => {
       try {
         const { data, error } = await supabase
           .from('pawn_items')
           .select('*')
           .eq('id', editId)
+          .eq('user_id', user.id)
           .single()
         if (error || !data) { toast.error('Item not found'); navigate('/items'); return }
 
@@ -174,6 +176,7 @@ export default function AddItem() {
           .from('pawn_allocations')
           .select('id, allocated_name')
           .eq('item_id', data.id)
+          .eq('user_id', user.id)
           .eq('status', 'active')
           .order('created_at', { ascending: false })
           .limit(1)
@@ -203,7 +206,7 @@ export default function AddItem() {
         setInitialLoading(false)
       }
     })()
-  }, [editId, isSuperUser])
+  }, [editId, isSuperUser, user?.id])
 
   useEffect(() => {
     const defaultImagePath = 'PawnVault'
@@ -260,6 +263,7 @@ export default function AddItem() {
       const { data } = await supabase
         .from('pawn_items')
         .select('serial_number')
+        .eq('user_id', user?.id ?? '')
         .like('serial_number', pattern)
         .order('created_at', { ascending: false })
 
@@ -292,7 +296,7 @@ export default function AddItem() {
     } finally {
       setSerialLoading(false)
     }
-  }, [])
+  }, [user?.id])
 
   const handleMediatorChange = (value: MediatorOption | '') => {
     setMediator(value)
@@ -334,6 +338,7 @@ export default function AddItem() {
         const { data } = await supabase
           .from('pawn_items')
           .select('id, status')
+          .eq('user_id', user?.id ?? '')
           .eq('serial_number', serial.trim())
         if (data && data.length > 0) {
           // Skip if editing the same item
@@ -361,6 +366,7 @@ export default function AddItem() {
       const { data } = await supabase
         .from('pawn_items')
         .select('serial_number')
+        .eq('user_id', user?.id ?? '')
         .like('serial_number', pattern)
         .order('created_at', { ascending: false })
 
@@ -380,7 +386,7 @@ export default function AddItem() {
     } finally {
       setSerialLoading(false)
     }
-  }, [])
+  }, [user?.id])
 
   const handleItemTypeChange = (type: 'Gold' | 'Silver' | 'Other') => {
     setItemType(type)
@@ -522,6 +528,7 @@ export default function AddItem() {
   }
 
   const handleSubmit = async () => {
+    if (!user?.id) { toast.error('User session missing'); return }
     if (isSuperUser) {
       if (!mediator) { toast.error('Select a mediator'); return }
       if (mediator === 'Others' && !otherName.trim()) { toast.error('Enter mediator name'); return }
@@ -577,6 +584,7 @@ export default function AddItem() {
       }
 
       const payload = {
+        user_id: user.id,
         serial_number: serial.trim(),
         mediator: isSuperUser ? mediator : null,
         mediator_name: isSuperUser ? mediatorName : null,
@@ -670,6 +678,7 @@ export default function AddItem() {
 
   const handleUpdate = async () => {
     if (!savedItem) return
+    if (!user?.id) { toast.error('User session missing'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter a valid amount'); return }
     const weightValue = weight.trim() ? Number(weight) : null
     if (weightValue !== null && (!Number.isFinite(weightValue) || weightValue <= 0)) {
@@ -737,6 +746,7 @@ export default function AddItem() {
       const { error } = await supabase.from('pawn_items')
         .update(updateData)
         .eq('id', savedItem.id)
+        .eq('user_id', user.id)
 
       if (error) throw error
 
@@ -745,6 +755,7 @@ export default function AddItem() {
           .from('pawn_allocations')
           .update({ allocated_name: sourceLoanPerson })
           .eq('id', editSourceLoan.id)
+          .eq('user_id', user.id)
         if (sourceLoanError) throw sourceLoanError
         setEditSourceLoan(prev => prev ? { ...prev, allocated_name: sourceLoanPerson } : prev)
       }
@@ -761,6 +772,7 @@ export default function AddItem() {
 
   const handleDelete = async () => {
     if (!savedItem) return
+    if (!user?.id) { toast.error('User session missing'); return }
     const verified = await verify('Authenticate to delete this pledge')
     if (!verified) {
       toast.error('Biometric verification failed')
@@ -768,7 +780,7 @@ export default function AddItem() {
     }
     setDeleting(true)
     try {
-      const { error } = await supabase.from('pawn_items').delete().eq('id', savedItem.id)
+      const { error } = await supabase.from('pawn_items').delete().eq('id', savedItem.id).eq('user_id', user.id)
       if (error) throw error
       toast.success('Item deleted successfully')
       navigate('/items')
