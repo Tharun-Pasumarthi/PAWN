@@ -53,6 +53,18 @@ const NORMAL_RATE_OPTIONS = [
 
 const IMAGE_TARGET_BYTES = 200 * 1024
 
+function getNextSerialFromLatest(latestSerial: string | null | undefined, prefix: string, padStart = false) {
+  if (!latestSerial) {
+    return padStart ? `${prefix}01` : `${prefix}1`
+  }
+
+  const match = latestSerial.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`))
+  const currentNumber = match ? parseInt(match[1], 10) : 0
+  const nextNumber = currentNumber + 1
+
+  return padStart ? `${prefix}${String(nextNumber).padStart(2, '0')}` : `${prefix}${nextNumber}`
+}
+
 export default function AddItem() {
   const navigate = useNavigate()
   const { isSuperUser, user } = useAuth()
@@ -259,36 +271,17 @@ export default function AddItem() {
         pattern = `${name}%`
       }
 
-      // Query existing serial numbers with this prefix to find next number
+      // Use the most recently added matching serial and increment it.
       const { data } = await supabase
         .from('pawn_items')
         .select('serial_number')
         .eq('user_id', user?.id ?? '')
         .like('serial_number', pattern)
         .order('created_at', { ascending: false })
+        .limit(1)
 
-      let maxNum = 0
-      if (data && data.length > 0) {
-        for (const row of data) {
-          const sn = row.serial_number
-          if (med === 'Others') {
-            // Pattern: charan01, charan02...
-            const match = sn.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`))
-            if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
-          } else {
-            // Pattern: J-1, J-2, M-1, M-2...
-            const match = sn.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`))
-            if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
-          }
-        }
-      }
-
-      const nextNum = maxNum + 1
-      if (med === 'Others') {
-        setSerial(`${prefix}${String(nextNum).padStart(2, '0')}`)
-      } else {
-        setSerial(`${prefix}${nextNum}`)
-      }
+      const latestSerial = data?.[0]?.serial_number ?? null
+      setSerial(getNextSerialFromLatest(latestSerial, prefix, med === 'Others'))
       setSerialPrefix(prefix)
       setSerialStatus('')
     } catch {
@@ -369,16 +362,10 @@ export default function AddItem() {
         .eq('user_id', user?.id ?? '')
         .like('serial_number', pattern)
         .order('created_at', { ascending: false })
+        .limit(1)
 
-      let maxNum = 0
-      if (data && data.length > 0) {
-        for (const row of data) {
-          const match = row.serial_number.match(new RegExp(`^${prefix}(\\d+)$`))
-          if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10))
-        }
-      }
-
-      setSerial(`${prefix}${maxNum + 1}`)
+      const latestSerial = data?.[0]?.serial_number ?? null
+      setSerial(getNextSerialFromLatest(latestSerial, prefix))
       setSerialPrefix(prefix)
       setSerialStatus('')
     } catch {
