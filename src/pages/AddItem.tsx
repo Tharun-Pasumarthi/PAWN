@@ -1149,7 +1149,7 @@ export default function AddItem() {
                     className="field-input"
                     style={{ width: '100%', paddingLeft: 32, fontSize: '1rem', fontWeight: 600 }}
                     type="number"
-                    inputMode="decimal"
+                    inputMode="numeric"
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
                     placeholder="0.00"
@@ -1184,7 +1184,7 @@ export default function AddItem() {
                       className="field-input"
                       style={{ width: '100%', paddingLeft: 32, fontSize: '1rem', fontWeight: 600 }}
                       type="number"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={amount}
                       onChange={e => setAmount(e.target.value)}
                       placeholder="0.00"
